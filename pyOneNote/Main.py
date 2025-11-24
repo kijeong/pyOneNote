@@ -11,8 +11,12 @@ import json
 log = logging.getLogger()
 
 def check_valid(file):
+    # OneNote 파일 시그니처 확인 (MS-ONESTORE 2.3.1 Header 섹션 참조)
+    # 파일의 첫 16바이트는 guidFileType으로 파일 형식을 식별
     if file.read(16) in (
+        # .one 파일 시그니처: {7B5C52E4-D88C-4DA7-AEB1-5378D02996D3} (little-endian)
         b"\xE4\x52\x5C\x7B\x8C\xD8\xA7\x4D\xAE\xB1\x53\x78\xD0\x29\x96\xD3",
+        # .onetoc2 파일 시그니처: {43FF2FA1-EFD9-4C76-9EE2-10EA5722765F} (little-endian)
         b"\xA1\x2F\xFF\x43\xD9\xEF\x76\x4C\x9E\xE2\x10\xEA\x57\x22\x76\x5F",
     ):
         return True
@@ -38,9 +42,13 @@ def process_onenote_file(file, output_dir, extension, json_output):
         file_metadata ={}
         for propertySet in data['properties']:
             print('{}{}({}):'.format(indent, propertySet['type'], propertySet['identity']))
+            # jcidEmbeddedFileNode (0x00060035): 내장된 파일 노드 (MS-ONE 2.2.32)
+            # 문서에 첨부된 파일 정보를 포함하는 노드 타입
             if propertySet['type'] == "jcidEmbeddedFileNode":
                 if 'EmbeddedFileContainer' in propertySet['val']:
                     file_metadata[propertySet['val']['EmbeddedFileContainer'][0]] = propertySet['val']
+            # jcidImageNode (0x00060011): 이미지 노드 (MS-ONE 2.2.24)
+            # 문서에 포함된 이미지 정보를 포함하는 노드 타입
             if propertySet['type'] == "jcidImageNode":
                 if 'PictureContainer' in propertySet['val']:
                     file_metadata[propertySet['val']['PictureContainer'][0]] = propertySet['val']

@@ -7,17 +7,25 @@ DEBUG = False
 
 
 class FileNodeListHeader:
+    """MS-ONESTORE 2.4.2 FileNodeListHeader 구조체
+    FileNodeListFragment의 시작을 지정하는 헤더 구조체"""
     def __init__(self, file):
+        # uintMagic: 0xA4567AB1F5F7F4C4 (FileNodeList 식별자)
+        # FileNodeListID: 파일 노드 리스트의 고유 식별자
+        # nFragmentSequence: fragment의 순차 번호 (0부터 시작)
         self.uintMagic, self.FileNodeListID, self.nFragmentSequence = struct.unpack('<8sII', file.read(16))
 
 
 class FileNodeList:
+    """MS-ONESTORE 2.4 File Node List
+    파일 내 데이터를 저장하고 참조하기 위한 FileNode 구조체들의 리스트"""
     def __init__(self, file, document, file_chunk_reference):
         file.seek(file_chunk_reference.stp)
         self.end = file_chunk_reference.stp + file_chunk_reference.cb
         self.fragments = []
 
-        # FileNodeList can contain one or more FileNodeListFragment
+        # FileNodeList는 하나 이상의 FileNodeListFragment로 구성됨
+        # 각 fragment는 동일한 FileNodeListID를 가져야 함
         while True:
             section_end = file_chunk_reference.stp + file_chunk_reference.cb
             fragment = FileNodeListFragment(file, document, section_end)
@@ -29,11 +37,14 @@ class FileNodeList:
 
 
 class FileNodeListFragment:
+    """MS-ONESTORE 2.4.1 FileNodeListFragment 구조체
+    FileNode 구조체들의 시퀀스를 포함하는 fragment"""
     def __init__(self, file, document, end):
         self.fileNodes = []
         self.fileNodeListHeader = FileNodeListHeader(file)
 
-        # FileNodeListFragment can have one or more FileNode
+        # FileNodeListFragment는 여러 개의 FileNode를 포함할 수 있음
+        # ChunkTerminatorFND (0xFF) 또는 빈 노드(0x00)를 만나면 종료
         while file.tell() + 24 < end:
             node = FileNode(file, document)
             self.fileNodes.append(node)
@@ -46,6 +57,17 @@ class FileNodeListFragment:
 
 
 class FileNodeHeader:
+    """MS-ONESTORE 2.4.3 FileNode Header
+    FileNode의 타입과 크기 정보를 포함하는 4바이트 헤더
+    
+    비트 필드 구조:
+    - FileNodeID (0-9): 노드 타입 식별자
+    - Size (10-22): FileNode 구조체의 크기(바이트)
+    - StpFormat (23-24): 파일 포인터의 크기와 형식
+    - CbFormat (25-26): 데이터 크기 필드의 형식
+    - BaseType (27-30): FileNode의 기본 타입
+    - Reserved (31): 예약 비트
+    """
     _FileNodeIDs = {
         0x004: (0x004, 0, "ObjectSpaceManifestRootFND"),
         0x008: (0x008, 2, "ObjectSpaceManifestListReferenceFND"),
@@ -90,13 +112,18 @@ class FileNodeHeader:
 
     def __init__(self, file):
         fileNodeHeader, = struct.unpack('<I', file.read(4))
+        # FileNodeID: 노드 타입을 나타내는 10비트 값
         self.file_node_id = fileNodeHeader & 0x3ff
         self.file_node_type = "Invalid"
         if self.file_node_id in self._FileNodeIDs:
             self.file_node_type = self._FileNodeIDs[self.file_node_id][2]
+        # Size: FileNode 구조체의 전체 크기 (13비트)
         self.size = (fileNodeHeader >> 10) & 0x1fff
+        # StpFormat: 파일 포인터 형식 (0=8바이트, 1=4바이트, 2=2바이트 압축, 3=4바이트 압축)
         self.stpFormat = (fileNodeHeader >> 23) & 0x3
+        # CbFormat: 데이터 크기 필드 형식 (0=4바이트, 1=8바이트, 2=1바이트 압축, 3=2바이트 압축)
         self.cbFormat = (fileNodeHeader >> 25) & 0x3
+        # BaseType: 0=데이터 없음, 1=데이터 참조, 2=FileNodeList 참조
         self.baseType = (fileNodeHeader >> 27) & 0xf
         self.reserved = (fileNodeHeader >> 31)
 
@@ -183,7 +210,12 @@ class FileNode:
 
 
 class ExtendedGUID:
+    """MS-ONESTORE 2.2.1 ExtendedGUID 구조체
+    GUID와 버전 번호를 포함하는 20바이트 구조체
+    Global Identification Table에서 GUID를 참조할 때 사용"""
     def __init__(self, file):
+        # guid: 16바이트 GUID (little-endian)
+        # n: 버전/시퀀스 번호 (4바이트)
         self.guid, self.n = struct.unpack('<16sI', file.read(20))
         self.guid = uuid.UUID(bytes_le=self.guid)
 
@@ -192,6 +224,13 @@ class ExtendedGUID:
 
 
 class FileNodeChunkReference:
+    """MS-ONESTORE 2.2.4.2 FileNodeChunkReference 구조체
+    FileNode가 참조하는 데이터의 파일 내 위치와 크기를 지정
+    
+    StpFormat과 CbFormat에 따라 크기가 결정됨:
+    - StpFormat: 파일 포인터 형식 (0=8바이트, 1=4바이트, 2=2바이트 압축, 3=4바이트 압축)
+    - CbFormat: 데이터 크기 형식 (0=4바이트, 1=8바이트, 2=1바이트 압축, 3=2바이트 압축)
+    """
     def __init__(self, file, stpFormat, cbFormat):
         data_size = 0
         stp_compressed = False
@@ -249,7 +288,12 @@ class FileNodeChunkReference:
 
 
 class FileChunkReference64x32(FileNodeChunkReference):
+    """MS-ONESTORE 2.2.4.4 FileChunkReference64x32 구조체
+    stp 필드가 8바이트, cb 필드가 4바이트인 12바이트 파일 참조 구조체
+    주로 헤더에서 FileNodeList 위치를 참조할 때 사용"""
     def __init__(self, bytes):
+        # stp: 파일 내 데이터 위치 (8바이트)
+        # cb: 참조 데이터의 크기 (4바이트)
         self.stp, self.cb = struct.unpack('<QI', bytes)
         self.invalid = 0xffffffffffffffff
 
@@ -258,7 +302,11 @@ class FileChunkReference64x32(FileNodeChunkReference):
 
 
 class FileChunkReference32(FileNodeChunkReference):
+    """MS-ONESTORE 2.2.4.1 FileChunkReference32 구조체
+    stp와 cb 필드가 각각 4바이트인 8바이트 파일 참조 구조체"""
     def __init__(self, bytes):
+        # stp: 파일 내 데이터 위치 (4바이트)
+        # cb: 참조 데이터의 크기 (4바이트)
         self.stp, self.cb = struct.unpack('<II', bytes)
         self.invalid = 0xffffffff
 
@@ -462,9 +510,14 @@ class RevisionManifestStart7FND:
 
 
 class CompactID:
+    """MS-ONESTORE 2.2.2 CompactID 구조체
+    ExtendedGUID를 압축하여 표현하는 4바이트 구조체
+    Global Identification Table에서 GUID를 검색하여 전체 ExtendedGUID를 복원"""
     def __init__(self, file, document):
         data, = struct.unpack('<I', file.read(4))
+        # n: ExtendedGUID.n 값 (8비트, 0-255)
         self.n = data & 0xff
+        # guidIndex: Global ID Table에서의 GUID 인덱스 (24비트)
         self.guidIndex = data >> 8
         self.document = document
         self.current_revision = self.document.cur_revision
@@ -481,6 +534,17 @@ class CompactID:
 
 
 class JCID:
+    """MS-ONE/MS-ONESTORE JCID (JavaScript-like Compact Identifier)
+    객체의 타입을 식별하는 4바이트 구조체
+    
+    비트 필드:
+    - Index (0-15): JCID 인덱스
+    - IsBinary (16): 바이너리 데이터 여부
+    - IsPropertySet (17): PropertySet 여부
+    - IsGraphNode (18): 그래프 노드 여부
+    - IsFileData (19): 파일 데이터 객체 여부
+    - IsReadOnly (20): 읽기 전용 여부
+    """
     _jcid_name_mapping= {
         0x00120001: "jcidReadOnlyPersistablePropertyContainerForAuthor",
         0x00020001: "jcidPersistablePropertyContainerForTOC",
@@ -514,11 +578,17 @@ class JCID:
 
     def __init__(self, file):
         self.jcid, = struct.unpack('<I', file.read(4))
+        # index: JCID 타입 인덱스 (16비트)
         self.index = self.jcid & 0xffff
+        # IsBinary: 바이너리 데이터를 포함하는지 여부
         self.IsBinary = ((self.jcid >> 16) & 0x1) == 1
+        # IsPropertySet: PropertySet 구조체인지 여부
         self.IsPropertySet = ((self.jcid >> 17) & 0x1) == 1
+        # IsGraphNode: 그래프 노드인지 여부
         self.IsGraphNode = ((self.jcid >> 18) & 0x1) == 1
+        # IsFileData: 파일 데이터 객체인지 여부
         self.IsFileData = ((self.jcid >> 19) & 0x1) == 1
+        # IsReadOnly: 읽기 전용인지 여부
         self.IsReadOnly = ((self.jcid >> 20) & 0x1) == 1
 
     def get_jcid_name(self):
@@ -532,9 +602,13 @@ class JCID:
 
 
 class StringInStorageBuffer:
+    """MS-ONESTORE 2.2.3 StringInStorageBuffer 구조체
+    UTF-16으로 인코딩된 문자열을 저장하는 구조체"""
     def __init__(self, file):
+        # cch: 문자 개수 (UTF-16 문자 단위)
         self.cch, = struct.unpack('<I', file.read(4))
         self.length_in_bytes = self.cch * 2
+        # StringData: UTF-16LE로 인코딩된 문자열 데이터
         self.StringData, = struct.unpack('{}s'.format(self.length_in_bytes), file.read(self.length_in_bytes))
         self.StringData = self.StringData.decode('utf-16')
 
@@ -543,10 +617,19 @@ class StringInStorageBuffer:
 
 
 class FileDataStoreObject:
+    """MS-ONESTORE 2.5.21 FileDataStoreObject 구조체
+    파일 데이터를 저장하는 객체 (헤더, 데이터, 푸터로 구성)
+    주로 내장된 파일이나 이미지 데이터를 저장할 때 사용"""
     def __init__(self, file, fileNodeChunkReference):
+        # guidHeader: 헤더 GUID (16바이트)
+        # cbLength: 파일 데이터의 크기 (8바이트)
+        # unused: 사용하지 않음 (4바이트, 0이어야 함)
+        # reserved: 예약 (8바이트)
         self.guidHeader, self.cbLength, self.unused, self.reserved = struct.unpack('<16sQ4s8s', file.read(36))
+        # FileData: 실제 파일 데이터
         self.FileData, = struct.unpack('{}s'.format(self.cbLength), file.read(self.cbLength))
         file.seek(fileNodeChunkReference.stp + fileNodeChunkReference.cb - 16)
+        # guidFooter: 푸터 GUID (guidHeader와 동일해야 함)
         self.guidFooter, = struct.unpack('16s', file.read(16))
         self.guidHeader = uuid.UUID(bytes_le=self.guidHeader)
         self.guidFooter = uuid.UUID(bytes_le=self.guidFooter)
@@ -556,12 +639,24 @@ class FileDataStoreObject:
 
 
 class ObjectSpaceObjectPropSet:
+    """MS-ONESTORE 2.1.5 ObjectSpaceObjectPropSet 구조체
+    객체의 속성 세트를 정의하는 구조체
+    
+    구성:
+    - OIDs: ObjectID 스트림 (필수)
+    - OSIDs: ObjectSpaceID 스트림 (선택적)
+    - ContextIDs: Context ID 스트림 (선택적)
+    - PropertySet: 실제 속성 데이터
+    """
     def __init__(self, file, document):
+        # OIDs: 객체 ID 스트림 (필수)
         self.OIDs = ObjectSpaceObjectStreamOfIDs(file, document)
         self.OSIDs = None
+        # OSIDs: 객체 공간 ID 스트림 (OsidStreamNotPresent가 false일 때만)
         if not self.OIDs.header.OsidStreamNotPresent:
             self.OSIDs = ObjectSpaceObjectStreamOfIDs(file, document)
         self.ContextIDs = None
+        # ContextIDs: 확장 컨텍스트 ID 스트림 (ExtendedStreamsPresent가 true일 때만)
         if self.OIDs.header.ExtendedStreamsPresent:
             self.ContextIDs = ObjectSpaceObjectStreamOfIDs(file, document)
         self.body = PropertySet(file, self.OIDs, self.OSIDs, self.ContextIDs, document)
