@@ -10,7 +10,7 @@ class OneDocment:
         self.header = Header(file)
         self.root_file_node_list = FileNodeList(file, self, self.header.fcrFileNodeListRoot)
 
-    [staticmethod]
+    @staticmethod
     def traverse_nodes(root_file_node_list, nodes, filters):
         for fragment in root_file_node_list.fragments:
             for file_node in fragment.fileNodes:
