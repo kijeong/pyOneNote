@@ -1,13 +1,17 @@
-from pyOneNote.Header import *
-from pyOneNote.FileNode import *
+from pyOneNote.Header import Header
+from pyOneNote.FileNode import (
+    FileNodeList,
+    FileDataStoreObjectReferenceFND,
+    ObjectDeclarationFileData3RefCountFND,
+)
 
-class OneDocment:
-    def __init__(self, file):
+class OneDocument:
+    def __init__(self, file, debug=False):
         self._files = None
         self._properties= None
         self._global_identification_table= {}
         self.cur_revision = None
-        self.header = Header(file)
+        self.header = Header(file, debug=debug)
         self.root_file_node_list = FileNodeList(file, self, self.header.fcrFileNodeListRoot)
 
     @staticmethod
@@ -18,7 +22,7 @@ class OneDocment:
                     nodes.append(file_node)
 
                 for child_file_node_list in file_node.children:
-                    OneDocment.traverse_nodes(child_file_node_list, nodes, filters)
+                    OneDocument.traverse_nodes(child_file_node_list, nodes, filters)
 
     def get_properties(self):
         if self._properties:
@@ -28,7 +32,7 @@ class OneDocment:
 
         self._properties = []
 
-        OneDocment.traverse_nodes(self.root_file_node_list, nodes, filters)
+        OneDocument.traverse_nodes(self.root_file_node_list, nodes, filters)
         for node in nodes:
             if hasattr(node, 'propertySet'):
                 node.propertySet.body.indent= '\t\t'
@@ -43,7 +47,7 @@ class OneDocment:
         self._files = {}
         filters = ["FileDataStoreObjectReferenceFND", "ObjectDeclarationFileData3RefCountFND"]
 
-        OneDocment.traverse_nodes(self.root_file_node_list, nodes, filters)
+        OneDocument.traverse_nodes(self.root_file_node_list, nodes, filters)
 
         self.get_global_identification_table()
 

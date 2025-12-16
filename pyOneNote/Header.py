@@ -1,6 +1,6 @@
 import struct
 import uuid
-from pyOneNote.FileNode import *
+from pyOneNote.FileNode import FileChunkReference64x32, FileChunkReference32, FileNodeChunkReference
 
 
 class Header:
@@ -72,11 +72,11 @@ class Header:
     # 예약 공간 (오프셋 0x128-0x3FF)
     rgbReserved = None            # 0x128: 예약 공간 (728바이트, 0으로 채워짐)
 
-    def __init__(self, file):
+    def __init__(self, file_obj, debug=False):
         """헤더를 파일에서 읽어 파싱
         
         Args:
-            file: OneNote 파일 객체 (1024바이트 읽기 가능해야 함)
+            file_obj: OneNote 파일 객체 (1024바이트 읽기 가능해야 함)
         """
         self.guidFileType, \
         self.guidFile, \
@@ -115,7 +115,7 @@ class Header:
         self.bnLastWroteToThisFile, \
         self.bnOldestWritten, \
         self.bnNewestWritten, \
-        self.rgbReserved, = struct.unpack(self.HEADER_FORMAT, file.read(1024))
+        self.rgbReserved, = struct.unpack(self.HEADER_FORMAT, file_obj.read(1024))
 
         # GUID 필드를 little-endian UUID 객체로 변환
         self.guidFileType = uuid.UUID(bytes_le=self.guidFileType)
@@ -140,6 +140,55 @@ class Header:
         self.fcrLegacyFreeChunkList = FileChunkReference32(self.fcrLegacyFreeChunkList)
         self.fcrLegacyTransactionLog = FileChunkReference32(self.fcrLegacyTransactionLog)
         self.fcrLegacyFileNodeListRoot = FileChunkReference32(self.fcrLegacyFileNodeListRoot)
+
+        if debug:
+            self._debug_print_description()
+
+
+    def _debug_print_description(self):
+        items = [
+            ("guidFileType", "File type identifier GUID (e.g., .one / .onetoc2)."),
+            ("guidFile", "Unique identifier of this OneNote file."),
+            ("guidLegacyFileVersion", "Legacy file version GUID (typically zero)."),
+            ("guidFileFormat", "Revision Store file format GUID."),
+            ("ffvLastCodeThatWroteToThisFile", "Version of the last code that wrote to this file."),
+            ("ffvOldestCodeThatHasWrittenToThisFile", "Oldest code version that has written to this file."),
+            ("ffvNewestCodeThatHasWrittenToThisFile", "Newest code version that has written to this file."),
+            ("ffvOldestCodeThatMayReadThisFile", "Oldest code version that may read this file."),
+            ("cTransactionsInLog", "Number of transactions in the legacy transaction log."),
+            ("cbLegacyExpectedFileLength", "Expected legacy file length (bytes)."),
+            ("crcName", "CRC of the file name."),
+            ("fcrHashedChunkList", "Reference to the hashed chunk list (data integrity / lookup)."),
+            ("fcrTransactionLog", "Reference to the transaction log."),
+            ("fcrFileNodeListRoot", "Reference to the root FileNodeList (main object graph entry)."),
+            ("fcrFreeChunkList", "Reference to the free chunk list (free space management)."),
+            ("cbExpectedFileLength", "Expected file length (bytes)."),
+            ("cbFreeSpaceInFreeChunkList", "Free space in the free chunk list (bytes)."),
+            ("guidFileVersion", "Current file version GUID."),
+            ("nFileVersionGeneration", "File version generation number."),
+            ("guidDenyReadFileVersion", "File version GUID that denies reading."),
+            ("grfDebugLogFlags", "Debug log flags bitmask."),
+            ("fcrDebugLog", "Reference to the debug log."),
+            ("fcrAllocVerificationFreeChunkList", "Reference to the allocation verification free chunk list."),
+            ("bnCreated", "Build number that created the file."),
+            ("bnLastWroteToThisFile", "Build number that last wrote to the file."),
+            ("bnOldestWritten", "Oldest build number written to this file."),
+            ("bnNewestWritten", "Newest build number written to this file."),
+            ("fNeedsDefrag", "Flag: file needs defragmentation."),
+            ("fRepairedFile", "Flag: file was repaired."),
+            ("fNeedsGarbageCollect", "Flag: file needs garbage collection."),
+            ("fHasNoEmbeddedFileObjects", "Flag: file has no embedded file objects."),
+            ("guidAncestor", "Ancestor file GUID (if any)."),
+            ("fcrLegacyFreeChunkList", "Legacy reference to the free chunk list."),
+            ("fcrLegacyTransactionLog", "Legacy reference to the transaction log."),
+            ("fcrLegacyFileNodeListRoot", "Legacy reference to the root FileNodeList."),
+            ("cbLegacyFreeSpaceInFreeChunkList", "Legacy free space in the free chunk list (bytes)."),
+        ]
+
+        print("=== OneNote Header Debug ===")
+        for field, description in items:
+            value = getattr(self, field, None)
+            print(f"{field}: {value} - {description}")
 
 
     def convert_to_dictionary(self):

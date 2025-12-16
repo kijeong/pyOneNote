@@ -1,6 +1,4 @@
-from pyOneNote.Header import *
-from pyOneNote.FileNode import *
-from pyOneNote.OneDocument import *
+from pyOneNote.OneDocument import OneDocument
 import math
 import sys
 import os
@@ -29,7 +27,7 @@ def process_onenote_file(file, output_dir, extension, json_output):
         exit()
 
     file.seek(0)
-    document = OneDocment(file)
+    document = OneDocument(file)
     data = document.get_json()
     if not json_output:
         print('Headers\n####################################################################')
