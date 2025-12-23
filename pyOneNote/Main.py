@@ -79,7 +79,14 @@ def process_onenote_file(fh_onenote, output_dir, extension, json_output):
                 output_file.write(extracted_file["content"])
             counter += 1
 
-    return json.dumps(data)
+    json_payload = json.dumps(data, ensure_ascii=False, indent=2)
+    if json_output:
+        if isinstance(json_output, str):
+            with open(json_output, "w", encoding="utf-8") as json_fp:
+                json_fp.write(json_payload)
+        else:
+            print(json_payload)
+    return json_payload
 
 
 def get_hex_format(hex_str, col, indent):
@@ -96,7 +103,8 @@ def main():
     p.add_argument("-f", "--input", action="store", help="File to analyze", required=True)
     p.add_argument("-o", "--output-dir", action="store", default="./", help="Path where store extracted files")
     p.add_argument("-e", "--extension", action="store", default="", help="Append this extension to extracted file(s)")
-    p.add_argument("-j", "--json", action="store_true", default=False, help="Generate JSON output only, no dumps or prints")
+    p.add_argument("-j", "--json", nargs="?", const=True, default=False, metavar="JSON_PATH",
+                   help="Generate JSON output only. Optionally write it to JSON_PATH instead of stdout.")
 
     args = p.parse_args()
 
