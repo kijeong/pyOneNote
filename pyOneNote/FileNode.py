@@ -70,7 +70,20 @@ class FileNodeHeader:
     - BaseType (27-30): FileNode의 기본 타입
     - Reserved (31): 예약 비트
     """
+    # MS-ONESTORE의 FileNode.FileNodeID -> 노드 타입 이름 매핑
+    # value 튜플 의미: (FileNodeID, expected_base_type, type_name)
+    # - FileNodeID: 10비트 노드 타입 값
+    # - expected_base_type: 스펙 상 해당 FileNode 타입에서 기대되는 BaseType 힌트(0/1/2)
+    #   * 현재 파서 로직은 헤더의 BaseType 필드를 직접 사용하며, 이 값은 참고용으로만 유지됨
+    # - type_name: MS-ONESTORE에 등장하는 구조체/파일 노드 타입 이름
+    #
+    # 스펙 대조 결과:
+    # - MS-ONESTORE 2.5 "File Node Types"(2.5.1~2.5.33) 항목은 모두 포함됨
+    # - 아래 항목들 중 일부는 2.5 목록 외이지만 문서에서 별도 섹션으로 정의되거나(예: 2.3.4.1 HashedChunkDescriptor2FND)
+    #   시퀀스 종료/레거시 목적(예: ChunkTerminatorFND, RevisionManifestEndFND, ObjectGroupEndFND,
+    #   GlobalIdTableStart2FND, GlobalIdTableEndFNDX)으로 등장함
     _FileNodeIDs = {
+        # 2.5.1~2.5.8: Object Space / Revision Manifest
         0x004: (0x004, 0, "ObjectSpaceManifestRootFND"),
         0x008: (0x008, 2, "ObjectSpaceManifestListReferenceFND"),
         0x00C: (0x00C, 0, "ObjectSpaceManifestListStartFND"),
@@ -80,35 +93,63 @@ class FileNodeHeader:
         0x01C: (0x01C, 0, "RevisionManifestEndFND"),
         0x01E: (0x01E, 0, "RevisionManifestStart6FND"),
         0x01F: (0x01F, 0, "RevisionManifestStart7FND"),
+
+        # 2.5.9~2.5.12(+부가): Global Identification Table
         0x021: (0x021, 0, "GlobalIdTableStartFNDX"),
         0x022: (0x022, 0, "GlobalIdTableStart2FND"),
         0x024: (0x024, 0, "GlobalIdTableEntryFNDX"),
         0x025: (0x025, 0, "GlobalIdTableEntry2FNDX"),
         0x026: (0x026, 0, "GlobalIdTableEntry3FNDX"),
         0x028: (0x028, 0, "GlobalIdTableEndFNDX"),
+
+        # 2.5.23~2.5.26: Object Declaration
         0x02D: (0x02D, 1, "ObjectDeclarationWithRefCountFNDX"),
         0x02E: (0x02E, 1, "ObjectDeclarationWithRefCount2FNDX"),
+
+        # 2.5.13~2.5.14: Object Revision
         0x041: (0x041, 1, "ObjectRevisionWithRefCountFNDX"),
         0x042: (0x042, 1, "ObjectRevisionWithRefCount2FNDX"),
+
+        # 2.5.15~2.5.16: Root Object References
         0x059: (0x059, 0, "RootObjectReference2FNDX"),
         0x05A: (0x05A, 0, "RootObjectReference3FND"),
+
+        # 2.5.17~2.5.18: Revision Role
         0x05C: (0x05C, 0, "RevisionRoleDeclarationFND"),
         0x05D: (0x05D, 0, "RevisionRoleAndContextDeclarationFND"),
+
+        # 2.5.27~2.5.28: File Data (embedded files)
         0x072: (0x072, 0, "ObjectDeclarationFileData3RefCountFND"),
         0x073: (0x073, 0, "ObjectDeclarationFileData3LargeRefCountFND"),
+
+        # 2.5.19~2.5.20: Encryption / Dependency Overrides
         0x07C: (0x07C, 1, "ObjectDataEncryptionKeyV2FNDX"),
         0x084: (0x084, 1, "ObjectInfoDependencyOverridesFND"),
+
+        # 2.5.33: Signature
         0x08C: (0x08C, 0, "DataSignatureGroupDefinitionFND"),
+
+        # 2.5.21~2.5.22: File Data Store
         0x090: (0x090, 2, "FileDataStoreListReferenceFND"),
         0x094: (0x094, 1, "FileDataStoreObjectReferenceFND"),
+
+        # 2.5.25~2.5.30: Object Declaration (v2, read-only)
         0x0A4: (0x0A4, 1, "ObjectDeclaration2RefCountFND"),
         0x0A5: (0x0A5, 1, "ObjectDeclaration2LargeRefCountFND"),
+
+        # 2.5.31~2.5.32(+부가): Object Group
         0x0B0: (0x0B0, 2, "ObjectGroupListReferenceFND"),
         0x0B4: (0x0B4, 0, "ObjectGroupStartFND"),
         0x0B8: (0x0B8, 0, "ObjectGroupEndFND"),
+
+        # 2.3.4.1: Hashed Chunk List
         0x0C2: (0x0C2, 1, "HashedChunkDescriptor2FND"),
+
+        # 2.5.29~2.5.30: ReadOnlyObjectDeclaration2*
         0x0C4: (0x0C4, 1, "ReadOnlyObjectDeclaration2RefCountFND"),
         0x0C5: (0x0C5, 1, "ReadOnlyObjectDeclaration2LargeRefCountFND"),
+
+        # FileNodeListFragment 내 종료 마커
         0x0FF: (0x0FF, -1, "ChunkTerminatorFND")
     }
 
