@@ -13,6 +13,8 @@ class OneDocument:
         self.cur_revision = None
         self.header = Header(file, debug=debug)
         self.root_file_node_list = FileNodeList(file, self, self.header.fcrFileNodeListRoot)
+        self.container = None
+        self.root_file_node_list = FileNodeList(fh_onenote, self, self.header.fcrFileNodeListRoot, self)
 
     @staticmethod
     def traverse_nodes(root_file_node_list, nodes, filters):

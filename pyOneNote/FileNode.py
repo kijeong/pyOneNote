@@ -19,10 +19,11 @@ class FileNodeListHeader:
 class FileNodeList:
     """MS-ONESTORE 2.4 File Node List
     파일 내 데이터를 저장하고 참조하기 위한 FileNode 구조체들의 리스트"""
-    def __init__(self, file, document, file_chunk_reference):
-        file.seek(file_chunk_reference.stp)
+    def __init__(self, fh_onenote, document, file_chunk_reference, container):
+        fh_onenote.seek(file_chunk_reference.stp)
         self.end = file_chunk_reference.stp + file_chunk_reference.cb
         self.fragments = []
+        self.container = container
 
         # FileNodeList는 하나 이상의 FileNodeListFragment로 구성됨
         # 각 fragment는 동일한 FileNodeListID를 가져야 함
@@ -39,9 +40,10 @@ class FileNodeList:
 class FileNodeListFragment:
     """MS-ONESTORE 2.4.1 FileNodeListFragment 구조체
     FileNode 구조체들의 시퀀스를 포함하는 fragment"""
-    def __init__(self, file, document, end):
+    def __init__(self, fh_onenote, document, end, file_node_list):
         self.fileNodes = []
         self.fileNodeListHeader = FileNodeListHeader(file)
+        self.container = file_node_list
 
         # FileNodeListFragment는 여러 개의 FileNode를 포함할 수 있음
         # ChunkTerminatorFND (0xFF) 또는 빈 노드(0x00)를 만나면 종료
@@ -127,14 +129,24 @@ class FileNodeHeader:
         self.baseType = (fileNodeHeader >> 27) & 0xf
         self.reserved = (fileNodeHeader >> 31)
 
+def get_containers_name_upwards(container):
+    names = []
+    cur_container = container
+    while cur_container:
+        names.append(type(cur_container).__name__)
+        cur_container = cur_container.container
+    names.reverse()
+    return '/'.join([str(name) for name in names])
 
 class FileNode:
     count = 0
-    def __init__(self, file, document):
+    def __init__(self, fh_onenote, document, file_node_list):
         self.document= document
-        self.file_node_header = FileNodeHeader(file)
-        if DEBUG:
-            print(str(file.tell()) + ' ' + self.file_node_header.file_node_type + ' ' + str(self.file_node_header.baseType))
+        self.file_node_header = FileNodeHeader(fh_onenote)
+        self.container = file_node_list
+ 
+        if getattr(self.document, "debug", False):
+            print(f"{get_containers_name_upwards(self.container)} {fh_onenote.tell()} {self.file_node_header.file_node_type} {self.file_node_header.baseType}")
         self.children = []
         FileNode.count += 1
         if self.file_node_header.file_node_type == "ObjectGroupStartFND":
