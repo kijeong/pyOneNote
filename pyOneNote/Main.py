@@ -92,18 +92,18 @@ def get_hex_format(hex_str, col, indent):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("-f", "--file", action="store", help="File to analyze", required=True)
+    p.add_argument("-f", "--input", action="store", help="File to analyze", required=True)
     p.add_argument("-o", "--output-dir", action="store", default="./", help="Path where store extracted files")
     p.add_argument("-e", "--extension", action="store", default="", help="Append this extension to extracted file(s)")
     p.add_argument("-j", "--json", action="store_true", default=False, help="Generate JSON output only, no dumps or prints")
 
     args = p.parse_args()
 
-    if not os.path.exists(args.file):
-        sys.exit("File: %s doesn't exist", args.file)
+    if not os.path.exists(args.input):
+        sys.exit(f"File: {args.input} doesn't exist")
 
-    with open(args.file, "rb") as file:
-        process_onenote_file(file, args.output_dir, args.extension, args.json)
+    with open(args.input, "rb") as fp_onenote:
+        process_onenote_file(fp_onenote, args.output_dir, args.extension, args.json)
         
 
 if __name__ == "__main__":
