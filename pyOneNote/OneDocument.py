@@ -5,14 +5,16 @@ from pyOneNote.FileNode import (
     ObjectDeclarationFileData3RefCountFND,
 )
 
+DEBUG = True
+
 class OneDocument:
-    def __init__(self, file, debug=False):
+    def __init__(self, fh_onenote, debug=False):
+        self.debug = debug
         self._files = None
         self._properties= None
         self._global_identification_table= {}
         self.cur_revision = None
-        self.header = Header(file, debug=debug)
-        self.root_file_node_list = FileNodeList(file, self, self.header.fcrFileNodeListRoot)
+        self.header = Header(fh_onenote, debug=debug)
         self.container = None
         self.root_file_node_list = FileNodeList(fh_onenote, self, self.header.fcrFileNodeListRoot, self)
 
@@ -74,10 +76,10 @@ class OneDocument:
 
     def get_json(self):
         files_in_hex = {}
-        for key, file in self.get_files().items():
-            files_in_hex[key] = {'extension': file['extension'],
-                                 'content': file['content'].hex(),
-                                 'identity': file['identity']}
+        for key, file_entry in self.get_files().items():
+            files_in_hex[key] = {'extension': file_entry['extension'],
+                                 'content': file_entry['content'].hex(),
+                                 'identity': file_entry['identity']}
 
         res = {
             "headers": self.header.convert_to_dictionary(),

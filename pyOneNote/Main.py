@@ -1,4 +1,4 @@
-from pyOneNote.OneDocument import OneDocument
+from pyOneNote.OneDocument import OneDocument, DEBUG
 import math
 import sys
 import os
@@ -8,10 +8,11 @@ import json
 
 log = logging.getLogger()
 
-def check_valid(file):
+
+def check_valid(fh_onenote):
     # OneNote 파일 시그니처 확인 (MS-ONESTORE 2.3.1 Header 섹션 참조)
     # 파일의 첫 16바이트는 guidFileType으로 파일 형식을 식별
-    if file.read(16) in (
+    if fh_onenote.read(16) in (
         # .one 파일 시그니처: {7B5C52E4-D88C-4DA7-AEB1-5378D02996D3} (little-endian)
         b"\xE4\x52\x5C\x7B\x8C\xD8\xA7\x4D\xAE\xB1\x53\x78\xD0\x29\x96\xD3",
         # .onetoc2 파일 시그니처: {43FF2FA1-EFD9-4C76-9EE2-10EA5722765F} (little-endian)
@@ -21,13 +22,13 @@ def check_valid(file):
     return False
 
 
-def process_onenote_file(file, output_dir, extension, json_output):
-    if not check_valid(file):
+def process_onenote_file(fh_onenote, output_dir, extension, json_output):
+    if not check_valid(fh_onenote):
         log.error("please provide valid One file")
         exit()
 
-    file.seek(0)
-    document = OneDocument(file)
+    fh_onenote.seek(0)
+    document = OneDocument(fh_onenote, debug=DEBUG)
     data = document.get_json()
     if not json_output:
         print('Headers\n####################################################################')
@@ -58,24 +59,24 @@ def process_onenote_file(file, output_dir, extension, json_output):
 
         print('\n\nEmbedded Files\n####################################################################')
         indent = '\t'
-        for name, file in data['files'].items():
-            print('{}{} ({}):'.format(indent, name, file['identity']))
-            print('\t{}Extension: {}'.format(indent, file['extension']))
-            if(file['identity'] in file_metadata):
-                for property_name, property_val in file_metadata[file['identity']].items():
+        for name, embedded_file in data['files'].items():
+            print('{}{} ({}):'.format(indent, name, embedded_file['identity']))
+            print('\t{}Extension: {}'.format(indent, embedded_file['extension']))
+            if(embedded_file['identity'] in file_metadata):
+                for property_name, property_val in file_metadata[embedded_file['identity']].items():
                     print('{}{}: {}'.format(indent+'\t', property_name, str(property_val)))
-            print('{}'.format( get_hex_format(file['content'][:256], 16, indent+'\t')))
+            print('{}'.format( get_hex_format(embedded_file['content'][:256], 16, indent+'\t')))
 
         if extension and not extension.startswith("."):
             extension = "." + extension
 
         counter = 0
-        for file_guid, file in document.get_files().items():
+        for file_guid, extracted_file in document.get_files().items():
             with open(
                     os.path.join(output_dir,
-                                 "file_{}{}{}".format(counter, file["extension"], extension)), "wb"
+                                 "file_{}{}{}".format(counter, extracted_file["extension"], extension)), "wb"
             ) as output_file:
-                output_file.write(file["content"])
+                output_file.write(extracted_file["content"])
             counter += 1
 
     return json.dumps(data)

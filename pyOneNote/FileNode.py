@@ -3,17 +3,14 @@ import struct
 from datetime import datetime, timedelta
 import locale
 
-DEBUG = False
-
-
 class FileNodeListHeader:
     """MS-ONESTORE 2.4.2 FileNodeListHeader 구조체
     FileNodeListFragment의 시작을 지정하는 헤더 구조체"""
-    def __init__(self, file):
+    def __init__(self, fh_onenote):
         # uintMagic: 0xA4567AB1F5F7F4C4 (FileNodeList 식별자)
         # FileNodeListID: 파일 노드 리스트의 고유 식별자
         # nFragmentSequence: fragment의 순차 번호 (0부터 시작)
-        self.uintMagic, self.FileNodeListID, self.nFragmentSequence = struct.unpack('<8sII', file.read(16))
+        self.uintMagic, self.FileNodeListID, self.nFragmentSequence = struct.unpack('<8sII', fh_onenote.read(16))
 
 
 class FileNodeList:
@@ -29,12 +26,12 @@ class FileNodeList:
         # 각 fragment는 동일한 FileNodeListID를 가져야 함
         while True:
             section_end = file_chunk_reference.stp + file_chunk_reference.cb
-            fragment = FileNodeListFragment(file, document, section_end)
+            fragment = FileNodeListFragment(fh_onenote, document, section_end, self)
             self.fragments.append(fragment)
             if fragment.nextFragment.isFcrNil():
                 break
             file_chunk_reference = fragment.nextFragment
-            file.seek(fragment.nextFragment.stp)
+            fh_onenote.seek(fragment.nextFragment.stp)
 
 
 class FileNodeListFragment:
@@ -42,20 +39,20 @@ class FileNodeListFragment:
     FileNode 구조체들의 시퀀스를 포함하는 fragment"""
     def __init__(self, fh_onenote, document, end, file_node_list):
         self.fileNodes = []
-        self.fileNodeListHeader = FileNodeListHeader(file)
+        self.fileNodeListHeader = FileNodeListHeader(fh_onenote)
         self.container = file_node_list
 
         # FileNodeListFragment는 여러 개의 FileNode를 포함할 수 있음
         # ChunkTerminatorFND (0xFF) 또는 빈 노드(0x00)를 만나면 종료
-        while file.tell() + 24 < end:
-            node = FileNode(file, document)
+        while fh_onenote.tell() + 24 < end:
+            node = FileNode(fh_onenote, document, self)
             self.fileNodes.append(node)
             if node.file_node_header.file_node_id == 255 or node.file_node_header.file_node_id == 0:
                 break
 
-        file.seek(end - 20)
-        self.nextFragment = FileChunkReference64x32(file.read(12))
-        self.footer, = struct.unpack('<Q', file.read(8))
+        fh_onenote.seek(end - 20)
+        self.nextFragment = FileChunkReference64x32(fh_onenote.read(12))
+        self.footer, = struct.unpack('<Q', fh_onenote.read(8))
 
 
 class FileNodeHeader:
@@ -153,13 +150,16 @@ class FileNodeHeader:
         0x0FF: (0x0FF, -1, "ChunkTerminatorFND")
     }
 
-    def __init__(self, file):
-        fileNodeHeader, = struct.unpack('<I', file.read(4))
+    def __init__(self, fh_onenote):
+        fileNodeHeader, = struct.unpack('<I', fh_onenote.read(4))
         # FileNodeID: 노드 타입을 나타내는 10비트 값
         self.file_node_id = fileNodeHeader & 0x3ff
-        self.file_node_type = "Invalid"
-        if self.file_node_id in self._FileNodeIDs:
-            self.file_node_type = self._FileNodeIDs[self.file_node_id][2]
+        entry = self._FileNodeIDs.get(self.file_node_id)
+        if not entry:
+            self.file_node_type = "UnknownType_0x{:03X}".format(self.file_node_id)
+        else:
+             self.file_node_type = entry[2]
+
         # Size: FileNode 구조체의 전체 크기 (13비트)
         self.size = (fileNodeHeader >> 10) & 0x1fff
         # StpFormat: 파일 포인터 형식 (0=8바이트, 1=4바이트, 2=2바이트 압축, 3=4바이트 압축)
@@ -191,64 +191,64 @@ class FileNode:
         self.children = []
         FileNode.count += 1
         if self.file_node_header.file_node_type == "ObjectGroupStartFND":
-            self.data = ObjectGroupStartFND(file)
+            self.data = ObjectGroupStartFND(fh_onenote)
         elif self.file_node_header.file_node_type == "ObjectSpaceManifestListReferenceFND":
-            self.data = ObjectSpaceManifestListReferenceFND(file, self.file_node_header)
+            self.data = ObjectSpaceManifestListReferenceFND(fh_onenote, self.file_node_header)
         elif self.file_node_header.file_node_type == "ObjectSpaceManifestListStartFND":
-            self.data = ObjectSpaceManifestListStartFND(file)
+            self.data = ObjectSpaceManifestListStartFND(fh_onenote)
         elif self.file_node_header.file_node_type == "RevisionManifestListReferenceFND":
-            self.data = RevisionManifestListReferenceFND(file, self.file_node_header)
+            self.data = RevisionManifestListReferenceFND(fh_onenote, self.file_node_header)
         elif self.file_node_header.file_node_type == "RevisionManifestListStartFND":
-            self.data = RevisionManifestListStartFND(file)
+            self.data = RevisionManifestListStartFND(fh_onenote)
         elif self.file_node_header.file_node_type == "RevisionManifestStart4FND":
-            self.data = RevisionManifestStart4FND(file)
+            self.data = RevisionManifestStart4FND(fh_onenote)
             self.document.cur_revision = self.data.rid
         elif self.file_node_header.file_node_type == "RevisionManifestStart6FND":
-            self.data = RevisionManifestStart6FND(file)
+            self.data = RevisionManifestStart6FND(fh_onenote)
             self.document.cur_revision = self.data.rid
         elif self.file_node_header.file_node_type == "ObjectGroupListReferenceFND":
-            self.data = ObjectGroupListReferenceFND(file, self.file_node_header)
+            self.data = ObjectGroupListReferenceFND(fh_onenote, self.file_node_header)
         elif self.file_node_header.file_node_type == "GlobalIdTableEntryFNDX":
-            self.data = GlobalIdTableEntryFNDX(file)
+            self.data = GlobalIdTableEntryFNDX(fh_onenote)
             if not self.document.cur_revision in self.document._global_identification_table:
                 self.document._global_identification_table[self.document.cur_revision] = {}
 
             self.document._global_identification_table[self.document.cur_revision][self.data.index] = self.data.guid
         elif self.file_node_header.file_node_type == "DataSignatureGroupDefinitionFND":
-            self.data = DataSignatureGroupDefinitionFND(file)
+            self.data = DataSignatureGroupDefinitionFND(fh_onenote)
         elif self.file_node_header.file_node_type == "ObjectDeclaration2RefCountFND":
-            self.data = ObjectDeclaration2RefCountFND(file, self.document, self.file_node_header)
-            current_offset = file.tell()
+            self.data = ObjectDeclaration2RefCountFND(fh_onenote, self.document, self.file_node_header)
+            current_offset = fh_onenote.tell()
             if self.data.body.jcid.IsPropertySet:
-                file.seek(self.data.ref.stp)
-                self.propertySet = ObjectSpaceObjectPropSet(file, document)
-            file.seek(current_offset)
+                fh_onenote.seek(self.data.ref.stp)
+                self.propertySet = ObjectSpaceObjectPropSet(fh_onenote, document)
+            fh_onenote.seek(current_offset)
         elif self.file_node_header.file_node_type == "ReadOnlyObjectDeclaration2LargeRefCountFND":
-            self.data = ReadOnlyObjectDeclaration2LargeRefCountFND(file, self.document, self.file_node_header)
+            self.data = ReadOnlyObjectDeclaration2LargeRefCountFND(fh_onenote, self.document, self.file_node_header)
         elif self.file_node_header.file_node_type == "ReadOnlyObjectDeclaration2RefCountFND":
-            self.data = ReadOnlyObjectDeclaration2RefCountFND(file, self.document, self.file_node_header)
+            self.data = ReadOnlyObjectDeclaration2RefCountFND(fh_onenote, self.document, self.file_node_header)
         elif self.file_node_header.file_node_type == "FileDataStoreListReferenceFND":
-            self.data = FileDataStoreListReferenceFND(file, self.file_node_header)
+            self.data = FileDataStoreListReferenceFND(fh_onenote, self.file_node_header)
         elif self.file_node_header.file_node_type == "FileDataStoreObjectReferenceFND":
-            self.data = FileDataStoreObjectReferenceFND(file, self.file_node_header)
+            self.data = FileDataStoreObjectReferenceFND(fh_onenote, self.file_node_header)
         elif self.file_node_header.file_node_type == "ObjectDeclaration2Body":
-            self.data = ObjectDeclaration2Body(file, self.document)
+            self.data = ObjectDeclaration2Body(fh_onenote, self.document)
         elif self.file_node_header.file_node_type == "ObjectInfoDependencyOverridesFND":
-            self.data = ObjectInfoDependencyOverridesFND(file, self.file_node_header, self.document)
+            self.data = ObjectInfoDependencyOverridesFND(fh_onenote, self.file_node_header, self.document)
         elif self.file_node_header.file_node_type == "RootObjectReference2FNDX":
-            self.data = RootObjectReference2FNDX(file, self.document)
+            self.data = RootObjectReference2FNDX(fh_onenote, self.document)
         elif self.file_node_header.file_node_type == "RootObjectReference3FND":
-            self.data = RootObjectReference3FND(file)
+            self.data = RootObjectReference3FND(fh_onenote)
         elif self.file_node_header.file_node_type == "ObjectSpaceManifestRootFND":
-            self.data = ObjectSpaceManifestRootFND(file)
+            self.data = ObjectSpaceManifestRootFND(fh_onenote)
         elif self.file_node_header.file_node_type == "ObjectDeclarationFileData3RefCountFND":
-            self.data = ObjectDeclarationFileData3RefCountFND(file, self.document)
+            self.data = ObjectDeclarationFileData3RefCountFND(fh_onenote, self.document)
         elif self.file_node_header.file_node_type == "RevisionRoleDeclarationFND":
-            self.data = RevisionRoleDeclarationFND(file)
+            self.data = RevisionRoleDeclarationFND(fh_onenote)
         elif self.file_node_header.file_node_type == "RevisionRoleAndContextDeclarationFND":
-            self.data = RevisionRoleAndContextDeclarationFND(file)
+            self.data = RevisionRoleAndContextDeclarationFND(fh_onenote)
         elif self.file_node_header.file_node_type == "RevisionManifestStart7FND":
-            self.data = RevisionManifestStart7FND(file)
+            self.data = RevisionManifestStart7FND(fh_onenote)
             self.document.cur_revision = self.data.base.rid
         elif self.file_node_header.file_node_type in ["RevisionManifestEndFND", "ObjectGroupEndFND"]:
             # no data part
@@ -256,20 +256,20 @@ class FileNode:
         else:
             p = 1
 
-        current_offset = file.tell()
+        current_offset = fh_onenote.tell()
         if self.file_node_header.baseType == 2:
-            self.children.append(FileNodeList(file, self.document, self.data.ref))
-        file.seek(current_offset)
+            self.children.append(FileNodeList(fh_onenote, self.document, self.data.ref, self))
+        fh_onenote.seek(current_offset)
 
 
 class ExtendedGUID:
     """MS-ONESTORE 2.2.1 ExtendedGUID 구조체
     GUID와 버전 번호를 포함하는 20바이트 구조체
     Global Identification Table에서 GUID를 참조할 때 사용"""
-    def __init__(self, file):
+    def __init__(self, fh_onenote):
         # guid: 16바이트 GUID (little-endian)
         # n: 버전/시퀀스 번호 (4바이트)
-        self.guid, self.n = struct.unpack('<16sI', file.read(20))
+        self.guid, self.n = struct.unpack('<16sI', fh_onenote.read(20))
         self.guid = uuid.UUID(bytes_le=self.guid)
 
     def __repr__(self):
@@ -284,7 +284,7 @@ class FileNodeChunkReference:
     - StpFormat: 파일 포인터 형식 (0=8바이트, 1=4바이트, 2=2바이트 압축, 3=4바이트 압축)
     - CbFormat: 데이터 크기 형식 (0=4바이트, 1=8바이트, 2=1바이트 압축, 3=2바이트 압축)
     """
-    def __init__(self, file, stpFormat, cbFormat):
+    def __init__(self, fh_onenote, stpFormat, cbFormat):
         data_size = 0
         stp_compressed = False
         stp_type = ''
@@ -324,7 +324,7 @@ class FileNodeChunkReference:
             data_size += 2
             cb_compressed = True
 
-        self.stp, self.cb = struct.unpack('<{}{}'.format(stp_type, cb_type), file.read(data_size))
+        self.stp, self.cb = struct.unpack('<{}{}'.format(stp_type, cb_type), fh_onenote.read(data_size))
         if stp_compressed:
             self.stp *= 8
 
@@ -368,124 +368,124 @@ class FileChunkReference32(FileNodeChunkReference):
 
 
 class ObjectGroupStartFND:
-    def __init__(self, file):
-        self.oid = ExtendedGUID(file)
+    def __init__(self, fh_onenote):
+        self.oid = ExtendedGUID(fh_onenote)
 
 
 class ObjectSpaceManifestRootFND:
-    def __init__(self, file):
-        self.gosidRoot = ExtendedGUID(file)
+    def __init__(self, fh_onenote):
+        self.gosidRoot = ExtendedGUID(fh_onenote)
 
 
 class ObjectSpaceManifestListStartFND:
-    def __init__(self, file):
-        self.gosid = ExtendedGUID(file)
+    def __init__(self, fh_onenote):
+        self.gosid = ExtendedGUID(fh_onenote)
 
 
 class ObjectSpaceManifestListReferenceFND:
-    def __init__(self, file, file_node_header):
-        self.ref = FileNodeChunkReference(file, file_node_header.stpFormat, file_node_header.cbFormat)
-        self.gosid = ExtendedGUID(file)
+    def __init__(self, fh_onenote, file_node_header):
+        self.ref = FileNodeChunkReference(fh_onenote, file_node_header.stpFormat, file_node_header.cbFormat)
+        self.gosid = ExtendedGUID(fh_onenote)
 
 
 class RevisionManifestListReferenceFND:
-    def __init__(self, file, file_node_header):
-        self.ref = FileNodeChunkReference(file, file_node_header.stpFormat, file_node_header.cbFormat)
+    def __init__(self, fh_onenote, file_node_header):
+        self.ref = FileNodeChunkReference(fh_onenote, file_node_header.stpFormat, file_node_header.cbFormat)
 
 
 class RevisionManifestListStartFND:
-    def __init__(self, file):
-        self.gosid = ExtendedGUID(file)
-        self.nInstance = file.read(4)
+    def __init__(self, fh_onenote):
+        self.gosid = ExtendedGUID(fh_onenote)
+        self.nInstance = fh_onenote.read(4)
 
 
 class RevisionManifestStart4FND:
-    def __init__(self, file):
-        self.rid = ExtendedGUID(file)
-        self.ridDependent = ExtendedGUID(file)
-        self.timeCreation, self.RevisionRole, self.odcsDefault = struct.unpack('<8sIH', file.read(14))
+    def __init__(self, fh_onenote):
+        self.rid = ExtendedGUID(fh_onenote)
+        self.ridDependent = ExtendedGUID(fh_onenote)
+        self.timeCreation, self.RevisionRole, self.odcsDefault = struct.unpack('<8sIH', fh_onenote.read(14))
 
 
 class RevisionManifestStart6FND:
-    def __init__(self, file):
-        self.rid = ExtendedGUID(file)
-        self.ridDependent = ExtendedGUID(file)
-        self.RevisionRole, self.odcsDefault = struct.unpack('<IH', file.read(6))
+    def __init__(self, fh_onenote):
+        self.rid = ExtendedGUID(fh_onenote)
+        self.ridDependent = ExtendedGUID(fh_onenote)
+        self.RevisionRole, self.odcsDefault = struct.unpack('<IH', fh_onenote.read(6))
 
 
 class ObjectGroupListReferenceFND:
-    def __init__(self, file, file_node_header):
-        self.ref = FileNodeChunkReference(file, file_node_header.stpFormat, file_node_header.cbFormat)
-        self.ObjectGroupID = ExtendedGUID(file)
+    def __init__(self, fh_onenote, file_node_header):
+        self.ref = FileNodeChunkReference(fh_onenote, file_node_header.stpFormat, file_node_header.cbFormat)
+        self.ObjectGroupID = ExtendedGUID(fh_onenote)
 
 
 class GlobalIdTableEntryFNDX:
-    def __init__(self, file):
-        self.index, self.guid = struct.unpack('<I16s', file.read(20))
+    def __init__(self, fh_onenote):
+        self.index, self.guid = struct.unpack('<I16s', fh_onenote.read(20))
         self.guid = uuid.UUID(bytes_le=self.guid)
 
 
 class DataSignatureGroupDefinitionFND:
-    def __init__(self, file):
-        self.DataSignatureGroup = ExtendedGUID(file)
+    def __init__(self, fh_onenote):
+        self.DataSignatureGroup = ExtendedGUID(fh_onenote)
 
 
 class ObjectDeclaration2LargeRefCountFND:
-    def __init__(self, file, document, file_node_header):
-        self.ref = FileNodeChunkReference(file, file_node_header.stpFormat, file_node_header.cbFormat)
-        self.body = ObjectDeclaration2Body(file, document)
-        self.cRef, = struct.unpack('<I', file.read(4))
+    def __init__(self, fh_onenote, document, file_node_header):
+        self.ref = FileNodeChunkReference(fh_onenote, file_node_header.stpFormat, file_node_header.cbFormat)
+        self.body = ObjectDeclaration2Body(fh_onenote, document)
+        self.cRef, = struct.unpack('<I', fh_onenote.read(4))
 
 
 class ObjectDeclaration2RefCountFND:
-    def __init__(self, file, document, file_node_header):
-        self.ref = FileNodeChunkReference(file, file_node_header.stpFormat, file_node_header.cbFormat)
-        self.body = ObjectDeclaration2Body(file, document)
-        self.cRef, = struct.unpack('<B', file.read(1))
+    def __init__(self, fh_onenote, document, file_node_header):
+        self.ref = FileNodeChunkReference(fh_onenote, file_node_header.stpFormat, file_node_header.cbFormat)
+        self.body = ObjectDeclaration2Body(fh_onenote, document)
+        self.cRef, = struct.unpack('<B', fh_onenote.read(1))
 
 
 class ReadOnlyObjectDeclaration2LargeRefCountFND:
-    def __init__(self, file, document, file_node_header):
-        self.base = ObjectDeclaration2LargeRefCountFND(file, document, file_node_header)
-        self.md5Hash, = struct.unpack('16s', file.read(16))
+    def __init__(self, fh_onenote, document, file_node_header):
+        self.base = ObjectDeclaration2LargeRefCountFND(fh_onenote, document, file_node_header)
+        self.md5Hash, = struct.unpack('16s', fh_onenote.read(16))
 
 
 class ReadOnlyObjectDeclaration2RefCountFND:
-    def __init__(self, file, document, file_node_header):
-        self.base = ObjectDeclaration2RefCountFND(file, document, file_node_header)
-        self.md5Hash, = struct.unpack('16s', file.read(16))
+    def __init__(self, fh_onenote, document, file_node_header):
+        self.base = ObjectDeclaration2RefCountFND(fh_onenote, document, file_node_header)
+        self.md5Hash, = struct.unpack('16s', fh_onenote.read(16))
 
 
 class ObjectDeclaration2Body:
-    def __init__(self, file, document):
-        self.oid = CompactID(file, document)
-        self.jcid = JCID(file)
-        data, = struct.unpack('B', file.read(1))
+    def __init__(self, fh_onenote, document):
+        self.oid = CompactID(fh_onenote, document)
+        self.jcid = JCID(fh_onenote)
+        data, = struct.unpack('B', fh_onenote.read(1))
         self.fHasOidReferences = (data & 0x1) != 0
         self.fHasOsidReferences = (data & 0x2) != 0
 
 
 class ObjectInfoDependencyOverridesFND:
-    def __init__(self, file, file_node_header, document):
-        self.ref = FileNodeChunkReference(file, file_node_header.stpFormat, file_node_header.cbFormat)
+    def __init__(self, fh_onenote, file_node_header, document):
+        self.ref = FileNodeChunkReference(fh_onenote, file_node_header.stpFormat, file_node_header.cbFormat)
         if self.ref.isFcrNil():
-            data = ObjectInfoDependencyOverrideData(file, document)
+            data = ObjectInfoDependencyOverrideData(fh_onenote, document)
 
 
 class FileDataStoreListReferenceFND:
-    def __init__(self, file, file_node_header):
-        self.ref = FileNodeChunkReference(file, file_node_header.stpFormat, file_node_header.cbFormat)
+    def __init__(self, fh_onenote, file_node_header):
+        self.ref = FileNodeChunkReference(fh_onenote, file_node_header.stpFormat, file_node_header.cbFormat)
 
 
 class FileDataStoreObjectReferenceFND:
-    def __init__(self, file, file_node_header):
-        self.ref = FileNodeChunkReference(file, file_node_header.stpFormat, file_node_header.cbFormat)
-        self.guidReference, = struct.unpack('<16s', file.read(16))
+    def __init__(self, fh_onenote, file_node_header):
+        self.ref = FileNodeChunkReference(fh_onenote, file_node_header.stpFormat, file_node_header.cbFormat)
+        self.guidReference, = struct.unpack('<16s', fh_onenote.read(16))
         self.guidReference = uuid.UUID(bytes_le=self.guidReference)
-        current_offset = file.tell()
-        file.seek(self.ref.stp)
-        self.fileDataStoreObject = FileDataStoreObject(file, self.ref)
-        file.seek(current_offset)
+        current_offset = fh_onenote.tell()
+        fh_onenote.seek(self.ref.stp)
+        self.fileDataStoreObject = FileDataStoreObject(fh_onenote, self.ref)
+        fh_onenote.seek(current_offset)
 
     def __str__(self):
         return 'FileDataStoreObjectReferenceFND: (guidReference:{},fileDataStoreObject:{}'.format(
@@ -495,46 +495,46 @@ class FileDataStoreObjectReferenceFND:
 
 
 class ObjectInfoDependencyOverrideData:
-    def __init__(self, file, document):
-        self.c8BitOverrides, self.c32BitOverrides, self.crc = struct.unpack('<III', file.read(12))
+    def __init__(self, fh_onenote, document):
+        self.c8BitOverrides, self.c32BitOverrides, self.crc = struct.unpack('<III', fh_onenote.read(12))
         self.Overrides1 = []
         for i in range(self.c8BitOverrides):
-            self.Overrides1.append(ObjectInfoDependencyOverride8(file, document))
+            self.Overrides1.append(ObjectInfoDependencyOverride8(fh_onenote, document))
         for i in range(self.c32BitOverrides):
-            self.Overrides1.append(ObjectInfoDependencyOverride32(file, document))
+            self.Overrides1.append(ObjectInfoDependencyOverride32(fh_onenote, document))
 
 
 class ObjectInfoDependencyOverride8:
-    def __init__(self, file, document):
-        self.oid = CompactID(file, document)
-        self.cRef, = struct.unpack('B', file.read(1))
+    def __init__(self, fh_onenote, document):
+        self.oid = CompactID(fh_onenote, document)
+        self.cRef, = struct.unpack('B', fh_onenote.read(1))
 
 
 class ObjectInfoDependencyOverride32:
-    def __init__(self, file, document):
-        self.oid = CompactID(file, document)
-        self.cRef, = struct.unpack('<I', file.read(4))
+    def __init__(self, fh_onenote, document):
+        self.oid = CompactID(fh_onenote, document)
+        self.cRef, = struct.unpack('<I', fh_onenote.read(4))
 
 
 class RootObjectReference2FNDX:
-    def __init__(self, file, document):
-        self.oidRoot = CompactID(file, document)
-        self.RootRole, = struct.unpack('<I', file.read(4))
+    def __init__(self, fh_onenote, document):
+        self.oidRoot = CompactID(fh_onenote, document)
+        self.RootRole, = struct.unpack('<I', fh_onenote.read(4))
 
 
 class RootObjectReference3FND:
-    def __init__(self, file):
-        self.oidRoot = ExtendedGUID(file)
-        self.RootRole, = struct.unpack('<I', file.read(4))
+    def __init__(self, fh_onenote):
+        self.oidRoot = ExtendedGUID(fh_onenote)
+        self.RootRole, = struct.unpack('<I', fh_onenote.read(4))
 
 
 class ObjectDeclarationFileData3RefCountFND:
-    def __init__(self, file, document):
-        self.oid = CompactID(file, document)
-        self.jcid = JCID(file)
-        self.cRef, = struct.unpack('<B', file.read(1))
-        self.FileDataReference = StringInStorageBuffer(file)
-        self.Extension = StringInStorageBuffer(file)
+    def __init__(self, fh_onenote, document):
+        self.oid = CompactID(fh_onenote, document)
+        self.jcid = JCID(fh_onenote)
+        self.cRef, = struct.unpack('<B', fh_onenote.read(1))
+        self.FileDataReference = StringInStorageBuffer(fh_onenote)
+        self.Extension = StringInStorageBuffer(fh_onenote)
 
     def __str__(self):
         return 'ObjectDeclarationFileData3RefCountFND: (jcid:{}, Extension:{}, FileDataReference:{}'.format(
@@ -545,29 +545,29 @@ class ObjectDeclarationFileData3RefCountFND:
 
 
 class RevisionRoleDeclarationFND:
-    def __init__(self, file):
-        self.rid = ExtendedGUID(file)
-        self.RevisionRole, = struct.unpack('<I', file.read(4))
+    def __init__(self, fh_onenote):
+        self.rid = ExtendedGUID(fh_onenote)
+        self.RevisionRole, = struct.unpack('<I', fh_onenote.read(4))
 
 
 class RevisionRoleAndContextDeclarationFND:
-    def __init__(self, file):
-        self.base = RevisionRoleDeclarationFND(file)
-        self.gctxid = ExtendedGUID(file)
+    def __init__(self, fh_onenote):
+        self.base = RevisionRoleDeclarationFND(fh_onenote)
+        self.gctxid = ExtendedGUID(fh_onenote)
 
 
 class RevisionManifestStart7FND:
-    def __init__(self, file):
-        self.base = RevisionManifestStart6FND(file)
-        self.gctxid = ExtendedGUID(file)
+    def __init__(self, fh_onenote):
+        self.base = RevisionManifestStart6FND(fh_onenote)
+        self.gctxid = ExtendedGUID(fh_onenote)
 
 
 class CompactID:
     """MS-ONESTORE 2.2.2 CompactID 구조체
     ExtendedGUID를 압축하여 표현하는 4바이트 구조체
     Global Identification Table에서 GUID를 검색하여 전체 ExtendedGUID를 복원"""
-    def __init__(self, file, document):
-        data, = struct.unpack('<I', file.read(4))
+    def __init__(self, fh_onenote, document):
+        data, = struct.unpack('<I', fh_onenote.read(4))
         # n: ExtendedGUID.n 값 (8비트, 0-255)
         self.n = data & 0xff
         # guidIndex: Global ID Table에서의 GUID 인덱스 (24비트)
@@ -629,8 +629,8 @@ class JCID:
         0x0012004D: "jcidParagraphStyleObjectForText"
     }
 
-    def __init__(self, file):
-        self.jcid, = struct.unpack('<I', file.read(4))
+    def __init__(self, fh_onenote):
+        self.jcid, = struct.unpack('<I', fh_onenote.read(4))
         # index: JCID 타입 인덱스 (16비트)
         self.index = self.jcid & 0xffff
         # IsBinary: 바이너리 데이터를 포함하는지 여부
@@ -657,12 +657,12 @@ class JCID:
 class StringInStorageBuffer:
     """MS-ONESTORE 2.2.3 StringInStorageBuffer 구조체
     UTF-16으로 인코딩된 문자열을 저장하는 구조체"""
-    def __init__(self, file):
+    def __init__(self, fh_onenote):
         # cch: 문자 개수 (UTF-16 문자 단위)
-        self.cch, = struct.unpack('<I', file.read(4))
+        self.cch, = struct.unpack('<I', fh_onenote.read(4))
         self.length_in_bytes = self.cch * 2
         # StringData: UTF-16LE로 인코딩된 문자열 데이터
-        self.StringData, = struct.unpack('{}s'.format(self.length_in_bytes), file.read(self.length_in_bytes))
+        self.StringData, = struct.unpack('{}s'.format(self.length_in_bytes), fh_onenote.read(self.length_in_bytes))
         self.StringData = self.StringData.decode('utf-16')
 
     def __str__(self):
@@ -673,17 +673,17 @@ class FileDataStoreObject:
     """MS-ONESTORE 2.5.21 FileDataStoreObject 구조체
     파일 데이터를 저장하는 객체 (헤더, 데이터, 푸터로 구성)
     주로 내장된 파일이나 이미지 데이터를 저장할 때 사용"""
-    def __init__(self, file, fileNodeChunkReference):
+    def __init__(self, fh_onenote, fileNodeChunkReference):
         # guidHeader: 헤더 GUID (16바이트)
         # cbLength: 파일 데이터의 크기 (8바이트)
         # unused: 사용하지 않음 (4바이트, 0이어야 함)
         # reserved: 예약 (8바이트)
-        self.guidHeader, self.cbLength, self.unused, self.reserved = struct.unpack('<16sQ4s8s', file.read(36))
+        self.guidHeader, self.cbLength, self.unused, self.reserved = struct.unpack('<16sQ4s8s', fh_onenote.read(36))
         # FileData: 실제 파일 데이터
-        self.FileData, = struct.unpack('{}s'.format(self.cbLength), file.read(self.cbLength))
-        file.seek(fileNodeChunkReference.stp + fileNodeChunkReference.cb - 16)
+        self.FileData, = struct.unpack('{}s'.format(self.cbLength), fh_onenote.read(self.cbLength))
+        fh_onenote.seek(fileNodeChunkReference.stp + fileNodeChunkReference.cb - 16)
         # guidFooter: 푸터 GUID (guidHeader와 동일해야 함)
-        self.guidFooter, = struct.unpack('16s', file.read(16))
+        self.guidFooter, = struct.unpack('16s', fh_onenote.read(16))
         self.guidHeader = uuid.UUID(bytes_le=self.guidHeader)
         self.guidFooter = uuid.UUID(bytes_le=self.guidFooter)
 
@@ -701,27 +701,27 @@ class ObjectSpaceObjectPropSet:
     - ContextIDs: Context ID 스트림 (선택적)
     - PropertySet: 실제 속성 데이터
     """
-    def __init__(self, file, document):
+    def __init__(self, fh_onenote, document):
         # OIDs: 객체 ID 스트림 (필수)
-        self.OIDs = ObjectSpaceObjectStreamOfIDs(file, document)
+        self.OIDs = ObjectSpaceObjectStreamOfIDs(fh_onenote, document)
         self.OSIDs = None
         # OSIDs: 객체 공간 ID 스트림 (OsidStreamNotPresent가 false일 때만)
         if not self.OIDs.header.OsidStreamNotPresent:
-            self.OSIDs = ObjectSpaceObjectStreamOfIDs(file, document)
+            self.OSIDs = ObjectSpaceObjectStreamOfIDs(fh_onenote, document)
         self.ContextIDs = None
         # ContextIDs: 확장 컨텍스트 ID 스트림 (ExtendedStreamsPresent가 true일 때만)
         if self.OIDs.header.ExtendedStreamsPresent:
-            self.ContextIDs = ObjectSpaceObjectStreamOfIDs(file, document)
-        self.body = PropertySet(file, self.OIDs, self.OSIDs, self.ContextIDs, document)
+            self.ContextIDs = ObjectSpaceObjectStreamOfIDs(fh_onenote, document)
+        self.body = PropertySet(fh_onenote, self.OIDs, self.OSIDs, self.ContextIDs, document)
 
 
 class ObjectSpaceObjectStreamOfIDs:
-    def __init__(self, file, document):
-        self.header = ObjectSpaceObjectStreamHeader(file)
+    def __init__(self, fh_onenote, document):
+        self.header = ObjectSpaceObjectStreamHeader(fh_onenote)
         self.body = []
         self.head = 0
         for i in range(self.header.Count):
-            self.body.append(CompactID(file, document))
+            self.body.append(CompactID(fh_onenote, document))
 
     def read(self):
         res = None
@@ -734,24 +734,24 @@ class ObjectSpaceObjectStreamOfIDs:
 
 
 class ObjectSpaceObjectStreamHeader:
-    def __init__(self, file):
-        data, = struct.unpack('<I', file.read(4))
+    def __init__(self, fh_onenote):
+        data, = struct.unpack('<I', fh_onenote.read(4))
         self.Count = data & 0xffffff
         self.ExtendedStreamsPresent = (data >> 30) & 1 == 1
         self.OsidStreamNotPresent = (data >> 31) & 1 == 1
 
 
 class PropertySet:
-    def __init__(self, file, OIDs, OSIDs, ContextIDs, document):
-        self.current = file.tell()
-        self.cProperties, = struct.unpack('<H', file.read(2))
+    def __init__(self, fh_onenote, OIDs, OSIDs, ContextIDs, document):
+        self.current = fh_onenote.tell()
+        self.cProperties, = struct.unpack('<H', fh_onenote.read(2))
         self.rgPrids = []
         self.indent = ''
         self.document = document
         self.current_revision = document.cur_revision
         self._formated_properties = None
         for i in range(self.cProperties):
-            self.rgPrids.append(PropertyID(file))
+            self.rgPrids.append(PropertyID(fh_onenote))
 
         self.rgData = []
         for i in range(self.cProperties):
@@ -761,34 +761,34 @@ class PropertySet:
             elif type == 0x2:
                 self.rgData.append(self.rgPrids[i].boolValue)
             elif type == 0x3:
-                self.rgData.append(struct.unpack('c', file.read(1))[0])
+                self.rgData.append(struct.unpack('c', fh_onenote.read(1))[0])
             elif type == 0x4:
-                self.rgData.append(struct.unpack('2s', file.read(2))[0])
+                self.rgData.append(struct.unpack('2s', fh_onenote.read(2))[0])
             elif type == 0x5:
-                self.rgData.append(struct.unpack('4s', file.read(4))[0])
+                self.rgData.append(struct.unpack('4s', fh_onenote.read(4))[0])
             elif type == 0x6:
-                self.rgData.append(struct.unpack('8s', file.read(8))[0])
+                self.rgData.append(struct.unpack('8s', fh_onenote.read(8))[0])
             elif type == 0x7:
-                self.rgData.append(PrtFourBytesOfLengthFollowedByData(file, self))
+                self.rgData.append(PrtFourBytesOfLengthFollowedByData(fh_onenote, self))
             elif type == 0x8 or type == 0x09:
                 count = 1
                 if type == 0x09:
-                    count, = struct.unpack('<I', file.read(4))
+                    count, = struct.unpack('<I', fh_onenote.read(4))
                 self.rgData.append(self.get_compact_ids(OIDs, count))
             elif type == 0xA or type == 0x0B:
                 count = 1
                 if type == 0x0B:
-                    count, = struct.unpack('<I', file.read(4))
+                    count, = struct.unpack('<I', fh_onenote.read(4))
                 self.rgData.append(self.get_compact_ids(OSIDs, count))
             elif type == 0xC or type == 0x0D:
                 count = 1
                 if type == 0x0D:
-                    count, = struct.unpack('<I', file.read(4))
+                    count, = struct.unpack('<I', fh_onenote.read(4))
                 self.rgData.append(self.get_compact_ids(ContextIDs, count))
             elif type == 0x10:
                 raise NotImplementedError('ArrayOfPropertyValues is not implement')
             elif type == 0x11:
-                self.rgData.append(PropertySet(file))
+                self.rgData.append(PropertySet(fh_onenote, OIDs, OSIDs, ContextIDs, document))
             else:
                 raise ValueError('rgPrids[i].type is not valid')
 
@@ -902,9 +902,9 @@ class PropertySet:
 
 
 class PrtFourBytesOfLengthFollowedByData:
-    def __init__(self, file, propertySet):
-        self.cb, = struct.unpack('<I', file.read(4))
-        self.Data, = struct.unpack('{}s'.format(self.cb), file.read(self.cb))
+    def __init__(self, fh_onenote, propertySet):
+        self.cb, = struct.unpack('<I', fh_onenote.read(4))
+        self.Data, = struct.unpack('{}s'.format(self.cb), fh_onenote.read(self.cb))
 
     def __str__(self):
         return self.Data.hex()
@@ -1058,8 +1058,8 @@ class PropertyID:
         0x1C001DE9: "IsDeletedGraphSpaceContent",
     }
 
-    def __init__(self, file):
-        self.value, = struct.unpack('<I', file.read(4))
+    def __init__(self, fh_onenote):
+        self.value, = struct.unpack('<I', fh_onenote.read(4))
         self.id = self.value & 0x3ffffff
         self.type = (self.value >> 26) & 0x1f
         self.boolValue = (self.value >> 31) & 1 == 1
