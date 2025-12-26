@@ -853,7 +853,7 @@ class PropertySet:
             result += '{}{}: {}\n'.format(self.indent, propertyName, propertyVal)
         return result
 
-    [staticmethod]
+    @staticmethod
     def half_inch_size_to_pixels(picture_width, dpi=96):
         # Number of pixels per half-inch
         pixels_per_half_inch = dpi / 2
@@ -863,7 +863,7 @@ class PropertySet:
 
         return int(pixels)
 
-    [staticmethod]
+    @staticmethod
     def time32_to_datetime(time32):
         # Define the starting time (12:00 A.M., January 1, 1980, UTC)
         start = datetime(1980, 1, 1, 0, 0, 0)
@@ -877,7 +877,7 @@ class PropertySet:
         return dt
 
 
-    [staticmethod]
+    @staticmethod
     def parse_filetime(filetime):
         # Define the number of 100-nanosecond intervals in 1 second
         intervals_per_second = 10 ** 7
@@ -896,7 +896,7 @@ class PropertySet:
 
         return dt
 
-    [staticmethod]
+    @staticmethod
     def lcid_to_string(lcid):
         return locale.windows_locale.get(lcid, 'Unknown LCID')
 
