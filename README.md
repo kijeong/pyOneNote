@@ -26,7 +26,30 @@ pyonenote -f example.one -o output_dir -e bin
 
 # Command Line
 ```
-usage: pyonenote [-h] -f FILE [-o OUTPUT_DIR] [-e EXTENSION]
+usage: pyonenote [-h] -f FILE [-o OUTPUT_DIR] [-e EXTENSION] [-j [JSON_PATH]]
+                [--json-include SECTIONS] [--json-files-no-content]
+```
+
+## JSON output
+
+- **Print JSON to stdout**
+```
+pyonenote -f example.one -j
+```
+
+- **Write JSON to a file**
+```
+pyonenote -f example.one -j output.json
+```
+
+- **Include only selected JSON sections**
+```
+pyonenote -f example.one -j --json-include headers,links
+```
+
+- **Omit embedded file content and include SHA-256 hash**
+```
+pyonenote -f example.one -j --json-include files --json-files-no-content
 ```
 
 Note: pyOneNote is under active development

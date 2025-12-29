@@ -5,6 +5,7 @@ import os
 import logging
 import argparse
 import json
+from typing import BinaryIO, Optional, Set, Union
 
 log = logging.getLogger()
 
@@ -22,15 +23,39 @@ def check_valid(fh_onenote):
     return False
 
 
-def process_onenote_file(fh_onenote, output_dir, extension, json_output):
+def process_onenote_file(
+    fh_onenote: BinaryIO,
+    output_dir: str,
+    extension: str,
+    json_output: Union[bool, str],
+    json_include_sections: Optional[Set[str]] = None,
+    json_files_include_content: bool = True,
+) -> None:
     if not check_valid(fh_onenote):
         log.error("please provide valid One file")
         exit()
 
     fh_onenote.seek(0)
-    document = OneDocument(fh_onenote, debug=DEBUG)
+    debug_mode = DEBUG
+    if json_output:
+        debug_mode = False
+
+    document = OneDocument(fh_onenote, debug=debug_mode)
+    if json_output:
+        data = document.get_json(
+            include_sections=json_include_sections,
+            files_include_content=json_files_include_content,
+        )
+        json_payload = json.dumps(data, ensure_ascii=False, indent=2)
+        if isinstance(json_output, str):
+            with open(json_output, "w", encoding="utf-8") as json_fp:
+                json_fp.write(json_payload)
+        else:
+            print(json_payload)
+        return
+
     data = document.get_json()
-    if not json_output:
+    if output_dir:
         print('Headers\n####################################################################')
         indent = '\t'
         for key, header in data['headers'].items():
@@ -72,6 +97,9 @@ def process_onenote_file(fh_onenote, output_dir, extension, json_output):
 
         counter = 0
         for file_guid, extracted_file in document.get_files().items():
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+
             with open(
                     os.path.join(output_dir,
                                  "file_{}{}{}".format(counter, extracted_file["extension"], extension)), "wb"
@@ -79,14 +107,7 @@ def process_onenote_file(fh_onenote, output_dir, extension, json_output):
                 output_file.write(extracted_file["content"])
             counter += 1
 
-    json_payload = json.dumps(data, ensure_ascii=False, indent=2)
-    if json_output:
-        if isinstance(json_output, str):
-            with open(json_output, "w", encoding="utf-8") as json_fp:
-                json_fp.write(json_payload)
-        else:
-            print(json_payload)
-    return json_payload
+    return
 
 
 def get_hex_format(hex_str, col, indent):
@@ -105,14 +126,50 @@ def main():
     p.add_argument("-e", "--extension", action="store", default="", help="Append this extension to extracted file(s)")
     p.add_argument("-j", "--json", nargs="?", const=True, default=False, metavar="JSON_PATH",
                    help="Generate JSON output only. Optionally write it to JSON_PATH instead of stdout.")
+    p.add_argument(
+        "--json-include",
+        action="store",
+        default=None,
+        metavar="SECTIONS",
+        help="Comma-separated list of top-level JSON sections to include: headers,properties,links,files",
+    )
+    p.add_argument(
+        "--json-files-no-content",
+        action="store_true",
+        default=False,
+        help="When 'files' is included in JSON output, omit file content and include content_sha256.",
+    )
 
     args = p.parse_args()
 
     if not os.path.exists(args.input):
         sys.exit(f"File: {args.input} doesn't exist")
 
+    if (args.json_include is not None or args.json_files_no_content) and not args.json:
+        p.error("--json-include/--json-files-no-content requires --json")
+
+    json_include_sections: Optional[Set[str]] = None
+    if args.json_include is not None:
+        json_include_sections = {s.strip().lower() for s in args.json_include.split(",") if s.strip()}
+        if not json_include_sections:
+            p.error("--json-include must contain at least one section")
+
+        supported_sections = {"headers", "properties", "links", "files"}
+        unknown_sections = json_include_sections - supported_sections
+        if unknown_sections:
+            supported_str = ", ".join(sorted(supported_sections))
+            unknown_str = ", ".join(sorted(unknown_sections))
+            p.error(f"Unsupported section name(s): {unknown_str}. Supported: {supported_str}")
+
     with open(args.input, "rb") as fp_onenote:
-        process_onenote_file(fp_onenote, args.output_dir, args.extension, args.json)
+        process_onenote_file(
+            fp_onenote,
+            args.output_dir,
+            args.extension,
+            args.json,
+            json_include_sections=json_include_sections,
+            json_files_include_content=not args.json_files_no_content,
+        )
         
 
 if __name__ == "__main__":

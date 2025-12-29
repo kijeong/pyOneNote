@@ -1,4 +1,5 @@
 import re
+import hashlib
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pyOneNote.Header import Header
@@ -140,19 +141,62 @@ class OneDocument:
     def get_global_identification_table(self):
         return self._global_identification_table
 
-    def get_json(self):
-        files_in_hex = {}
-        for key, file_entry in self.get_files().items():
-            files_in_hex[key] = {'extension': file_entry['extension'],
-                                 'content': file_entry['content'].hex(),
-                                 'identity': file_entry['identity']}
+    def get_json(
+        self,
+        include_sections: Optional[Set[str]] = None,
+        files_include_content: bool = True,
+    ) -> Dict[str, Any]:
+        supported_sections = {"headers", "properties", "links", "files"}
+        if include_sections is not None:
+            unknown_sections = include_sections - supported_sections
+            if unknown_sections:
+                supported_str = ", ".join(sorted(supported_sections))
+                unknown_str = ", ".join(sorted(unknown_sections))
+                raise ValueError(
+                    f"Unsupported include_sections value(s): {unknown_str}. Supported sections: {supported_str}"
+                )
 
-        res = {
-            "headers": self.header.convert_to_dictionary(),
-            "properties": self.get_properties(),
-            "links": self.get_links(),
-            "files": files_in_hex,
-        }
+        if include_sections is None:
+            active_sections = supported_sections
+        else:
+            active_sections = include_sections
+
+        res: Dict[str, Any] = {}
+        if "headers" in active_sections:
+            res["headers"] = self.header.convert_to_dictionary()
+
+        if "properties" in active_sections:
+            res["properties"] = self.get_properties()
+
+        if "links" in active_sections:
+            res["links"] = self.get_links()
+
+        if "files" in active_sections:
+            files_json: Dict[str, Dict[str, str]] = {}
+            for key, file_entry in self.get_files().items():
+                extension = str(file_entry.get("extension", ""))
+                identity = str(file_entry.get("identity", ""))
+                raw_content = file_entry.get("content", b"")
+                if isinstance(raw_content, (bytes, bytearray)):
+                    content_bytes = bytes(raw_content)
+                else:
+                    content_bytes = b""
+
+                key_str = str(key)
+                if files_include_content:
+                    files_json[key_str] = {
+                        "extension": extension,
+                        "content": content_bytes.hex(),
+                        "identity": identity,
+                    }
+                else:
+                    files_json[key_str] = {
+                        "extension": extension,
+                        "identity": identity,
+                        "content_sha256": hashlib.sha256(content_bytes).hexdigest(),
+                    }
+
+            res["files"] = files_json
 
         return res
 
