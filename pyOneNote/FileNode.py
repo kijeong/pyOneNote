@@ -186,7 +186,7 @@ class FileNode:
         self.file_node_header = FileNodeHeader(fh_onenote)
         self.container = file_node_list
  
-        if getattr(self.document, "debug", False):
+        if self.document.debug:
             print(f"{get_containers_name_upwards(self.container)} {fh_onenote.tell()} {self.file_node_header.file_node_type} {self.file_node_header.baseType}")
         self.children = []
         FileNode.count += 1
@@ -344,10 +344,10 @@ class FileChunkReference64x32(FileNodeChunkReference):
     """MS-ONESTORE 2.2.4.4 FileChunkReference64x32 구조체
     stp 필드가 8바이트, cb 필드가 4바이트인 12바이트 파일 참조 구조체
     주로 헤더에서 FileNodeList 위치를 참조할 때 사용"""
-    def __init__(self, bytes):
+    def __init__(self, raw_bytes: bytes):
         # stp: 파일 내 데이터 위치 (8바이트)
         # cb: 참조 데이터의 크기 (4바이트)
-        self.stp, self.cb = struct.unpack('<QI', bytes)
+        self.stp, self.cb = struct.unpack('<QI', raw_bytes)
         self.invalid = 0xffffffffffffffff
 
     def __repr__(self):
@@ -357,10 +357,10 @@ class FileChunkReference64x32(FileNodeChunkReference):
 class FileChunkReference32(FileNodeChunkReference):
     """MS-ONESTORE 2.2.4.1 FileChunkReference32 구조체
     stp와 cb 필드가 각각 4바이트인 8바이트 파일 참조 구조체"""
-    def __init__(self, bytes):
+    def __init__(self, raw_bytes: bytes):
         # stp: 파일 내 데이터 위치 (4바이트)
         # cb: 참조 데이터의 크기 (4바이트)
-        self.stp, self.cb = struct.unpack('<II', bytes)
+        self.stp, self.cb = struct.unpack('<II', raw_bytes)
         self.invalid = 0xffffffff
 
     def __repr__(self):
@@ -598,6 +598,8 @@ class JCID:
     - IsFileData (19): 파일 데이터 객체 여부
     - IsReadOnly (20): 읽기 전용 여부
     """
+
+    # 2.1.13 Property Set
     _jcid_name_mapping= {
         0x00120001: "jcidReadOnlyPersistablePropertyContainerForAuthor",
         0x00020001: "jcidPersistablePropertyContainerForTOC",
@@ -755,39 +757,39 @@ class PropertySet:
 
         self.rgData = []
         for i in range(self.cProperties):
-            type = self.rgPrids[i].type
-            if type == 0x1:
+            prop_type = self.rgPrids[i].type
+            if prop_type == 0x1:
                 self.rgData.append(None)
-            elif type == 0x2:
+            elif prop_type == 0x2:
                 self.rgData.append(self.rgPrids[i].boolValue)
-            elif type == 0x3:
+            elif prop_type == 0x3:
                 self.rgData.append(struct.unpack('c', fh_onenote.read(1))[0])
-            elif type == 0x4:
+            elif prop_type == 0x4:
                 self.rgData.append(struct.unpack('2s', fh_onenote.read(2))[0])
-            elif type == 0x5:
+            elif prop_type == 0x5:
                 self.rgData.append(struct.unpack('4s', fh_onenote.read(4))[0])
-            elif type == 0x6:
+            elif prop_type == 0x6:
                 self.rgData.append(struct.unpack('8s', fh_onenote.read(8))[0])
-            elif type == 0x7:
+            elif prop_type == 0x7:
                 self.rgData.append(PrtFourBytesOfLengthFollowedByData(fh_onenote, self))
-            elif type == 0x8 or type == 0x09:
+            elif prop_type == 0x8 or prop_type == 0x09:
                 count = 1
-                if type == 0x09:
+                if prop_type == 0x09:
                     count, = struct.unpack('<I', fh_onenote.read(4))
                 self.rgData.append(self.get_compact_ids(OIDs, count))
-            elif type == 0xA or type == 0x0B:
+            elif prop_type == 0xA or prop_type == 0x0B:
                 count = 1
-                if type == 0x0B:
+                if prop_type == 0x0B:
                     count, = struct.unpack('<I', fh_onenote.read(4))
                 self.rgData.append(self.get_compact_ids(OSIDs, count))
-            elif type == 0xC or type == 0x0D:
+            elif prop_type == 0xC or prop_type == 0x0D:
                 count = 1
-                if type == 0x0D:
+                if prop_type == 0x0D:
                     count, = struct.unpack('<I', fh_onenote.read(4))
                 self.rgData.append(self.get_compact_ids(ContextIDs, count))
-            elif type == 0x10:
+            elif prop_type == 0x10:
                 raise NotImplementedError('ArrayOfPropertyValues is not implement')
-            elif type == 0x11:
+            elif prop_type == 0x11:
                 self.rgData.append(PropertySet(fh_onenote, OIDs, OSIDs, ContextIDs, document))
             else:
                 raise ValueError('rgPrids[i].type is not valid')
@@ -911,6 +913,8 @@ class PrtFourBytesOfLengthFollowedByData:
 
 
 class PropertyID:
+
+    # 2.1.12 Properties
     _property_id_name_mapping = {
         0x08001C00: "LayoutTightLayout",
         0x14001C01: "PageWidth",
