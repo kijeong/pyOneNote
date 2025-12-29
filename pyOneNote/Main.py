@@ -41,6 +41,7 @@ def process_onenote_file(
         debug_mode = False
 
     document = OneDocument(fh_onenote, debug=debug_mode)
+    document.parse()
     if json_output:
         data = document.get_json(
             include_sections=json_include_sections,
@@ -87,7 +88,7 @@ def process_onenote_file(
         for name, embedded_file in data['files'].items():
             print('{}{} ({}):'.format(indent, name, embedded_file['identity']))
             print('\t{}Extension: {}'.format(indent, embedded_file['extension']))
-            if(embedded_file['identity'] in file_metadata):
+            if embedded_file['identity'] in file_metadata:
                 for property_name, property_val in file_metadata[embedded_file['identity']].items():
                     print('{}{}: {}'.format(indent+'\t', property_name, str(property_val)))
             print('{}'.format( get_hex_format(embedded_file['content'][:256], 16, indent+'\t')))

@@ -19,9 +19,16 @@ class OneDocument:
         self._links: Optional[List[Dict[str, str]]] = None
         self._global_identification_table= {}
         self.cur_revision = None
-        self.header = Header(fh_onenote, debug=debug)
+        self.header = None
         self.container = None
-        self.root_file_node_list = FileNodeList(fh_onenote, self, self.header.fcrFileNodeListRoot, self)
+        self.root_file_node_list = None
+        self.fh_onenote = fh_onenote
+
+    def parse(self):
+        self.header = Header(self.fh_onenote, debug=self.debug)
+        self.root_file_node_list = FileNodeList(self.fh_onenote, self, self.header.fcrFileNodeListRoot, self)
+
+
 
     @staticmethod
     def traverse_nodes(root_file_node_list, nodes, filters):
