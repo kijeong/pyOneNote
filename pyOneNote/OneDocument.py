@@ -1,3 +1,6 @@
+import re
+from typing import Any, Dict, List, Optional, Set, Tuple
+
 from pyOneNote.Header import Header
 from pyOneNote.FileNode import (
     FileNodeList,
@@ -12,6 +15,7 @@ class OneDocument:
         self.debug = debug
         self._files = None
         self._properties= None
+        self._links: Optional[List[Dict[str, str]]] = None
         self._global_identification_table= {}
         self.cur_revision = None
         self.header = Header(fh_onenote, debug=debug)
@@ -38,11 +42,73 @@ class OneDocument:
 
         OneDocument.traverse_nodes(self.root_file_node_list, nodes, filters)
         for node in nodes:
-            if hasattr(node, 'propertySet'):
+            if hasattr(node, 'propertySet') and node.propertySet:
                 node.propertySet.body.indent= '\t\t'
                 self._properties.append({'type': str(node.data.body.jcid), 'identity':str(node.data.body.oid), 'val':node.propertySet.body.get_properties()})
 
         return  self._properties
+
+    @staticmethod
+    def _extract_urls_from_text(text: str) -> List[str]:
+        matches = re.findall(r"(?:https?://|mailto:|onenote:)[^\s<>\"']+", text, flags=re.IGNORECASE)
+        urls: List[str] = []
+        seen: Set[str] = set()
+        for match in matches:
+            url = match.rstrip(")].,;:!?\"'\u3001\u3002")
+            if url and url not in seen:
+                seen.add(url)
+                urls.append(url)
+        return urls
+
+    def get_links(self, include_text_urls: bool = True) -> List[Dict[str, str]]:
+        if self._links is not None:
+            return self._links
+
+        self._links = []
+        seen: Set[Tuple[str, str]] = set()
+
+        for property_set in self.get_properties():
+            type_name = str(property_set.get('type', ''))
+            identity = str(property_set.get('identity', ''))
+            props: Dict[str, Any] = property_set.get('val', {})
+
+            wz_hyperlink_url = props.get('WzHyperlinkUrl')
+            if wz_hyperlink_url and self.debug:
+                print(f'Found WzHyperlinkUrl: {wz_hyperlink_url}')  # Debug print
+            if isinstance(wz_hyperlink_url, str):
+                url = wz_hyperlink_url.rstrip('\x00').strip()
+                if url:
+                    key = (identity, url)
+                    if key not in seen:
+                        seen.add(key)
+                        self._links.append(
+                            {
+                                'type': type_name,
+                                'identity': identity,
+                                'url': url,
+                                'source': 'WzHyperlinkUrl',
+                            }
+                        )
+
+            if include_text_urls:
+                rich_text = props.get('RichEditTextUnicode')
+                if rich_text and self.debug:
+                    print(f'Found RichEditTextUnicode: {rich_text}')  # Debug print
+                if isinstance(rich_text, str):
+                    for url in self._extract_urls_from_text(rich_text):
+                        key = (identity, url)
+                        if key not in seen:
+                            seen.add(key)
+                            self._links.append(
+                                {
+                                    'type': type_name,
+                                    'identity': identity,
+                                    'url': url,
+                                    'source': 'RichEditTextUnicode',
+                                }
+                            )
+
+        return self._links
 
     def get_files(self):
         if self._files:
@@ -84,6 +150,7 @@ class OneDocument:
         res = {
             "headers": self.header.convert_to_dictionary(),
             "properties": self.get_properties(),
+            "links": self.get_links(),
             "files": files_in_hex,
         }
 
