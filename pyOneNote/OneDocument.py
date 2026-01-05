@@ -9,7 +9,6 @@ from pyOneNote.FileNode import (
     ObjectDeclarationFileData3RefCountFND,
 )
 
-DEBUG = True
 
 class OneDocument:
     def __init__(self, fh_onenote, debug=False):

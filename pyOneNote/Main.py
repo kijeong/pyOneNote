@@ -1,4 +1,4 @@
-from pyOneNote.OneDocument import OneDocument, DEBUG
+from pyOneNote.OneDocument import OneDocument
 import math
 import sys
 import os
@@ -30,15 +30,14 @@ def process_onenote_file(
     json_output: Union[bool, str],
     json_include_sections: Optional[Set[str]] = None,
     json_files_include_content: bool = True,
+    debug: bool = False,
 ) -> None:
     if not check_valid(fh_onenote):
         log.error("please provide valid One file")
         exit()
 
     fh_onenote.seek(0)
-    debug_mode = DEBUG
-    if json_output:
-        debug_mode = False
+    debug_mode = debug
 
     document = OneDocument(fh_onenote, debug=debug_mode)
     document.parse()
@@ -140,6 +139,7 @@ def main():
         default=False,
         help="When 'files' is included in JSON output, omit file content and include content_sha256.",
     )
+    p.add_argument("-d", "--debug", action="store_true", default=False, help="Enable debug mode")
 
     args = p.parse_args()
 
@@ -170,6 +170,7 @@ def main():
             args.json,
             json_include_sections=json_include_sections,
             json_files_include_content=not args.json_files_no_content,
+            debug=args.debug,
         )
         
 
