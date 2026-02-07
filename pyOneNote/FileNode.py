@@ -62,7 +62,7 @@ class FileNodeListFragment:
 class FileNodeHeader:
     """MS-ONESTORE 2.4.3 FileNode Header
     FileNode의 타입과 크기 정보를 포함하는 4바이트 헤더
-    
+
     비트 필드 구조:
     - FileNodeID (0-9): 노드 타입 식별자
     - Size (10-22): FileNode 구조체의 크기(바이트)
@@ -293,7 +293,7 @@ class ExtendedGUID:
 class FileNodeChunkReference:
     """MS-ONESTORE 2.2.4.2 FileNodeChunkReference 구조체
     FileNode가 참조하는 데이터의 파일 내 위치와 크기를 지정
-    
+
     StpFormat과 CbFormat에 따라 크기가 결정됨:
     - StpFormat: 파일 포인터 형식 (0=8바이트, 1=4바이트, 2=2바이트 압축, 3=4바이트 압축)
     - CbFormat: 데이터 크기 형식 (0=4바이트, 1=8바이트, 2=1바이트 압축, 3=2바이트 압축)
@@ -607,7 +607,7 @@ class CompactID:
 class JCID:
     """MS-ONE/MS-ONESTORE JCID (JavaScript-like Compact Identifier)
     객체의 타입을 식별하는 4바이트 구조체
-    
+
     비트 필드:
     - Index (0-15): JCID 인덱스
     - IsBinary (16): 바이너리 데이터 여부
@@ -714,7 +714,7 @@ class FileDataStoreObject:
 class ObjectSpaceObjectPropSet:
     """MS-ONESTORE 2.1.5 ObjectSpaceObjectPropSet 구조체
     객체의 속성 세트를 정의하는 구조체
-    
+
     구성:
     - OIDs: ObjectID 스트림 (필수)
     - OSIDs: ObjectSpaceID 스트림 (선택적)
@@ -792,7 +792,7 @@ class PropertySet:
             # 2.6.6 PropertyID
             prop_type = self.rgPrids[i].type
             self.rgPos.append(fh_onenote.tell())
-            if prop_type == 0x1:
+            if prop_type == 0x0 or prop_type == 0x1:
                 # NoData
                 self.rgData.append(None)
             elif prop_type == 0x2:
@@ -835,8 +835,11 @@ class PropertySet:
                     count, = struct.unpack('<I', fh_onenote.read(4))
                 self.rgData.append(self.get_compact_ids(ContextIDs, count))
             elif prop_type == 0x10:
-                # ArrayOfPropertyValues
-                raise NotImplementedError('ArrayOfPropertyValues is not implement')
+                count, = struct.unpack('<I', fh_onenote.read(4))
+                arr = []
+                for _ in range(count):
+                    arr.append(PropertySet(fh_onenote, OIDs, OSIDs, ContextIDs, document))
+                self.rgData.append(arr)
             elif prop_type == 0x11:
                 # PropertySet
                 self.rgData.append(PropertySet(fh_onenote, OIDs, OSIDs, ContextIDs, document))
