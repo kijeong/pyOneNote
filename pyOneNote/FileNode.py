@@ -647,6 +647,10 @@ class JCID:
         0x00020046: "jcidVersionHistoryMetaData",
         0x0012004D: "jcidParagraphStyleObject",
         # 0x0012004D: "jcidParagraphStyleObjectForText" # 중복 ID
+        0x00060014: "jcidInkContainer",
+        0x0002003B: "jcidInkLineNode",
+        0x00020047: "jcidInkParagraphNode",
+        0x00120048: "jcidInkWordNode",
     }
 
     def __init__(self, fh_onenote):
@@ -844,7 +848,11 @@ class PropertySet:
                 # PropertySet
                 self.rgData.append(PropertySet(fh_onenote, OIDs, OSIDs, ContextIDs, document))
             else:
-                raise ValueError('rgPrids[i].type is not valid')
+                logging.getLogger("pyOneNote").warning(
+                    "Unknown property type 0x%x for property 0x%08x at offset %d, skipping",
+                    type, self.rgPrids[i].value, fh_onenote.tell()
+                )
+                self.rgData.append(None)
 
     def get_property_index(self, property_name):
         return self.property_name_to_index.get(property_name)
@@ -1169,6 +1177,13 @@ class PropertyID:
         0x1C001E20: "WzHyperlinkUrl",
         0x1400346B: "TaskTagDueDate",
         0x1C001DE9: "IsDeletedGraphSpaceContent",
+        0x1C003415: "InkData",
+        0x1C00340B: "InkPath",
+        0x24003416: "InkStrokes",
+        0x14003417: "InkBrushColor",
+        0x14003418: "InkBrushWidth",
+        0x14003419: "InkBrushHeight",
+        0x0800341A: "InkBrushTransparency",
     }
 
     def __init__(self, fh_onenote):
