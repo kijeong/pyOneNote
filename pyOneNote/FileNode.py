@@ -268,10 +268,10 @@ class FileNode:
             # no data part
             self.data = None
         else:
-            p = 1
+            self.data = None
 
         current_offset = fh_onenote.tell()
-        if self.file_node_header.baseType == 2:
+        if self.file_node_header.baseType == 2 and self.data is not None:
             self.children.append(FileNodeList(fh_onenote, self.document, self.data.ref, self))
         fh_onenote.seek(current_offset)
 
