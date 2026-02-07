@@ -6,6 +6,9 @@ from datetime import datetime, timedelta
 import locale
 
 logger = logging.getLogger(__name__)
+MAX_READ_SIZE = 256 * 1024 * 1024  # 256 MB sanity limit for any single read
+MAX_ARRAY_COUNT = 100000  # sanity limit for array element counts
+
 
 class FileNodeListHeader:
     """MS-ONESTORE 2.4.2 FileNodeListHeader 구조체
@@ -49,7 +52,11 @@ class FileNodeListFragment:
         # FileNodeListFragment는 여러 개의 FileNode를 포함할 수 있음
         # ChunkTerminatorFND (0xFF) 또는 빈 노드(0x00)를 만나면 종료
         while fh_onenote.tell() + 24 < end:
-            node = FileNode(fh_onenote, document, self)
+            try:
+                node = FileNode(fh_onenote, document, self)
+            except Exception as err:
+                logger.warning(f"Failed to parse FileNode at offset {fh_onenote.tell()}, skipping rest of fragment: {err}")
+                break
             self.fileNodes.append(node)
             if node.file_node_header.file_node_id == 255 or node.file_node_header.file_node_id == 0:
                 break
@@ -225,7 +232,11 @@ class FileNode:
             current_offset = fh_onenote.tell()
             if self.data.body.jcid.IsPropertySet:
                 fh_onenote.seek(self.data.ref.stp)
-                self.propertySet = ObjectSpaceObjectPropSet(fh_onenote, document)
+                try:
+                    self.propertySet = ObjectSpaceObjectPropSet(fh_onenote, document)
+                except Exception as err:
+                    logger.warning(
+                        f"Failed to parse PropertySet for object {self.data.body.oid} (jcid {self.data.body.jcid}) at offset {self.data.ref.stp}, skipping: {err}")
             fh_onenote.seek(current_offset)
         elif self.file_node_header.file_node_type == "ReadOnlyObjectDeclaration2LargeRefCountFND":
             self.data = ReadOnlyObjectDeclaration2LargeRefCountFND(fh_onenote, self.document, self.file_node_header)
@@ -703,6 +714,8 @@ class FileDataStoreObject:
         # unused: 사용하지 않음 (4바이트, 0이어야 함)
         # reserved: 예약 (8바이트)
         self.guidHeader, self.cbLength, self.unused, self.reserved = struct.unpack('<16sQ4s8s', fh_onenote.read(36))
+        if MAX_READ_SIZE < self.cbLength:
+            raise ValueError(f"File data size {self.cbLength} exceeds sanity limit")
         # FileData: 실제 파일 데이터
         self.FileData, = struct.unpack('{}s'.format(self.cbLength), fh_onenote.read(self.cbLength))
         fh_onenote.seek(fileNodeChunkReference.stp + fileNodeChunkReference.cb - 16)
@@ -823,6 +836,8 @@ class PropertySet:
                 count = 1
                 if prop_type == 0x09:
                     count, = struct.unpack('<I', fh_onenote.read(4))
+                    if MAX_ARRAY_COUNT < count:
+                        raise ValueError(f"OID array count {count} exceeds sanity limit")
                 self.rgData.append(self.get_compact_ids(OIDs, count))
             elif prop_type == 0xA or prop_type == 0x0B:
                 # 0xA: ObjectSpaceID
@@ -830,6 +845,8 @@ class PropertySet:
                 count = 1
                 if prop_type == 0x0B:
                     count, = struct.unpack('<I', fh_onenote.read(4))
+                    if MAX_ARRAY_COUNT < count:
+                        raise ValueError(f"OID array count {count} exceeds sanity limit")
                 self.rgData.append(self.get_compact_ids(OSIDs, count))
             elif prop_type == 0xC or prop_type == 0x0D:
                 # 0xC: ContextID
@@ -837,9 +854,13 @@ class PropertySet:
                 count = 1
                 if prop_type == 0x0D:
                     count, = struct.unpack('<I', fh_onenote.read(4))
+                    if MAX_ARRAY_COUNT < count:
+                        raise ValueError(f"OID array count {count} exceeds sanity limit")
                 self.rgData.append(self.get_compact_ids(ContextIDs, count))
             elif prop_type == 0x10:
                 count, = struct.unpack('<I', fh_onenote.read(4))
+                if MAX_ARRAY_COUNT < count:
+                    raise ValueError(f"hID array count {count} exceeds sanity limit")
                 arr = []
                 for _ in range(count):
                     arr.append(PropertySet(fh_onenote, OIDs, OSIDs, ContextIDs, document))
@@ -1020,6 +1041,8 @@ class PropertySet:
 class PrtFourBytesOfLengthFollowedByData:
     def __init__(self, fh_onenote, propertySet):
         self.cb, = struct.unpack('<I', fh_onenote.read(4))
+        if MAX_READ_SIZE < self.cb:
+            raise ValueError(f"Property data size {self.cb} exceeds sanity limit")
         self.Data, = struct.unpack('{}s'.format(self.cb), fh_onenote.read(self.cb))
 
     def __str__(self):
