@@ -7,7 +7,26 @@ import argparse
 import json
 from typing import BinaryIO, Optional, Set, Union
 
-log = logging.getLogger()
+logger = logging.getLogger(__name__)
+
+
+def init_logger(debug: bool = False):
+    fmt = "%(asctime)s [%(levelname)s] %(message)s"
+    level = logging.INFO
+    handlers = [logging.FileHandler("pyonenote.log", encoding="utf-8")]
+
+    if debug:
+        fmt = "%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d - %(message)s"
+        level = logging.DEBUG
+        handlers.append(logging.StreamHandler(sys.stdout))
+
+    logging.basicConfig(
+        level=level,
+        format=fmt,
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=handlers,
+        force=True
+    )
 
 
 def check_valid(fh_onenote):
@@ -33,7 +52,7 @@ def process_onenote_file(
     debug: bool = False,
 ) -> None:
     if not check_valid(fh_onenote):
-        log.error("please provide valid One file")
+        logger.error("please provide valid One file")
         exit()
 
     fh_onenote.seek(0)
@@ -142,6 +161,8 @@ def main():
     p.add_argument("-d", "--debug", action="store_true", default=False, help="Enable debug mode")
 
     args = p.parse_args()
+
+    init_logger(args.debug)
 
     if not os.path.exists(args.input):
         sys.exit(f"File: {args.input} doesn't exist")

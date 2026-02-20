@@ -1,7 +1,11 @@
 import uuid
 import struct
+import logging
+
 from datetime import datetime, timedelta
 import locale
+
+logger = logging.getLogger(__name__)
 
 class FileNodeListHeader:
     """MS-ONESTORE 2.4.2 FileNodeListHeader 구조체
@@ -187,7 +191,7 @@ class FileNode:
         self.container = file_node_list
  
         if self.document.debug:
-            print(f"{get_containers_name_upwards(self.container)} {fh_onenote.tell()} {self.file_node_header.file_node_type} {self.file_node_header.baseType}")
+            logger.debug(f"{get_containers_name_upwards(self.container)} {fh_onenote.tell()} {self.file_node_header.file_node_type} {self.file_node_header.baseType}")
         self.children = []
         FileNode.count += 1
         if self.file_node_header.file_node_type == "ObjectGroupStartFND":

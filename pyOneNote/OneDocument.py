@@ -1,5 +1,6 @@
 import re
 import hashlib
+import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pyOneNote.Header import Header
@@ -9,6 +10,7 @@ from pyOneNote.FileNode import (
     ObjectDeclarationFileData3RefCountFND,
 )
 
+logger = logging.getLogger(__name__)
 
 class OneDocument:
     def __init__(self, fh_onenote, debug=False):
@@ -81,7 +83,7 @@ class OneDocument:
 
             wz_hyperlink_url = props.get('WzHyperlinkUrl')
             if wz_hyperlink_url and self.debug:
-                print(f'Found WzHyperlinkUrl: {wz_hyperlink_url}')  # Debug print
+                logger.info(f'Found WzHyperlinkUrl: {wz_hyperlink_url}')  # Debug print
             if isinstance(wz_hyperlink_url, str):
                 url = wz_hyperlink_url.rstrip('\x00').strip()
                 if url:
@@ -100,7 +102,7 @@ class OneDocument:
             if include_text_urls:
                 rich_text = props.get('RichEditTextUnicode')
                 if rich_text and self.debug:
-                    print(f'Found RichEditTextUnicode: {rich_text}')  # Debug print
+                    logger.info(f'Found RichEditTextUnicode: {rich_text}')  # Debug print
                 if isinstance(rich_text, str):
                     for url in self._extract_urls_from_text(rich_text):
                         key = (identity, url)
