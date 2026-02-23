@@ -189,7 +189,7 @@ class FileNode:
         self.document= document
         self.file_node_header = FileNodeHeader(fh_onenote)
         self.container = file_node_list
- 
+
         if self.document.debug:
             logger.debug(f"{get_containers_name_upwards(self.container)} {fh_onenote.tell()} {self.file_node_header.file_node_type} {self.file_node_header.baseType}")
         self.children = []
@@ -611,7 +611,7 @@ class JCID:
     _jcid_name_mapping= {
         0x00120001: "jcidReadOnlyPersistablePropertyContainerForAuthor",
         0x00020001: "jcidPersistablePropertyContainerForTOC",
-        0x00020001: "jcidPersistablePropertyContainerForTOCSection",
+        # 0x00020001: "jcidPersistablePropertyContainerForTOCSection", # 중복 ID
         0x00060007: "jcidSectionNode",
         0x00060008: "jcidPageSeriesNode",
         0x0006000B: "jcidPageNode",
@@ -636,7 +636,7 @@ class JCID:
         0x00020044: "jcidRevisionMetaData",
         0x00020046: "jcidVersionHistoryMetaData",
         0x0012004D: "jcidParagraphStyleObject",
-        0x0012004D: "jcidParagraphStyleObjectForText"
+        # 0x0012004D: "jcidParagraphStyleObjectForText" # 중복 ID
     }
 
     def __init__(self, fh_onenote):
@@ -764,40 +764,58 @@ class PropertySet:
             self.rgPrids.append(PropertyID(fh_onenote))
 
         self.rgData = []
+        self.rgPos = []
         for i in range(self.cProperties):
+            # 2.6.6 PropertyID
             prop_type = self.rgPrids[i].type
+            self.rgPos.append(fh_onenote.tell())
             if prop_type == 0x1:
+                # NoData
                 self.rgData.append(None)
             elif prop_type == 0x2:
+                # Bool
                 self.rgData.append(self.rgPrids[i].boolValue)
             elif prop_type == 0x3:
+                # OneByteOfData
                 self.rgData.append(struct.unpack('c', fh_onenote.read(1))[0])
             elif prop_type == 0x4:
+                # TwoBytesOfData
                 self.rgData.append(struct.unpack('2s', fh_onenote.read(2))[0])
             elif prop_type == 0x5:
+                # FourBytesOfData
                 self.rgData.append(struct.unpack('4s', fh_onenote.read(4))[0])
             elif prop_type == 0x6:
+                # EightBytesOfData
                 self.rgData.append(struct.unpack('8s', fh_onenote.read(8))[0])
             elif prop_type == 0x7:
+                # FourBytesOfLengthFollowedByData
                 self.rgData.append(PrtFourBytesOfLengthFollowedByData(fh_onenote, self))
             elif prop_type == 0x8 or prop_type == 0x09:
+                # 0x8: ObjectID
+                # 0x9: ArrayOfObjectIDs
                 count = 1
                 if prop_type == 0x09:
                     count, = struct.unpack('<I', fh_onenote.read(4))
                 self.rgData.append(self.get_compact_ids(OIDs, count))
             elif prop_type == 0xA or prop_type == 0x0B:
+                # 0xA: ObjectSpaceID
+                # 0xB: ArrayOfObjectSpaceIDs
                 count = 1
                 if prop_type == 0x0B:
                     count, = struct.unpack('<I', fh_onenote.read(4))
                 self.rgData.append(self.get_compact_ids(OSIDs, count))
             elif prop_type == 0xC or prop_type == 0x0D:
+                # 0xC: ContextID
+                # 0xD: ArrayOfContextIDs
                 count = 1
                 if prop_type == 0x0D:
                     count, = struct.unpack('<I', fh_onenote.read(4))
                 self.rgData.append(self.get_compact_ids(ContextIDs, count))
             elif prop_type == 0x10:
+                # ArrayOfPropertyValues
                 raise NotImplementedError('ArrayOfPropertyValues is not implement')
             elif prop_type == 0x11:
+                # PropertySet
                 self.rgData.append(PropertySet(fh_onenote, OIDs, OSIDs, ContextIDs, document))
             else:
                 raise ValueError('rgPrids[i].type is not valid')
@@ -970,17 +988,20 @@ class PropertyID:
         0x1C001C1A: "NumberListFormat",
         0x14001C1B: "LayoutMaxWidth",
         0x14001C1C: "LayoutMaxHeight",
-        0x24001C1F: "ContentChildNodesOfOutlineElement",
-        0x24001C1F: "ContentChildNodesOfPageManifest",
-        0x24001C20: "ElementChildNodesOfSection",
-        0x24001C20: "ElementChildNodesOfPage",
-        0x24001C20: "ElementChildNodesOfTitle",
-        0x24001C20: "ElementChildNodesOfOutline",
-        0x24001C20: "ElementChildNodesOfOutlineElement",
-        0x24001C20: "ElementChildNodesOfTable",
-        0x24001C20: "ElementChildNodesOfTableRow",
-        0x24001C20: "ElementChildNodesOfTableCell",
-        0x24001C20: "ElementChildNodesOfVersionHistory",
+        0x24001C1F: "ContentChildNodes",
+        # 문맥(부모 객체가 무엇인지)에 따라 의미가 달라지지만 ID는 공유하는 구조
+        # 0x24001C1F: "ContentChildNodesOfOutlineElement",
+        # 0x24001C1F: "ContentChildNodesOfPageManifest",
+        0x24001C20: "ElementChildNodes",
+        # 0x24001C20: "ElementChildNodesOfSection",
+        # 0x24001C20: "ElementChildNodesOfPage",
+        # 0x24001C20: "ElementChildNodesOfTitle",
+        # 0x24001C20: "ElementChildNodesOfOutline",
+        # 0x24001C20: "ElementChildNodesOfOutlineElement",
+        # 0x24001C20: "ElementChildNodesOfTable",
+        # 0x24001C20: "ElementChildNodesOfTableRow",
+        # 0x24001C20: "ElementChildNodesOfTableCell",
+        # 0x24001C20: "ElementChildNodesOfVersionHistory",
         0x08001E1E: "EnableHistory",
         0x1C001C22: "RichEditTextUnicode",
         0x24001C26: "ListNodes",
