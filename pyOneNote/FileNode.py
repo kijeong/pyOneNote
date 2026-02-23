@@ -811,50 +811,75 @@ class PropertySet:
 
 
     def get_properties(self):
-        if self._formated_properties is not None :
+        if self._formated_properties is not None:
             return self._formated_properties
 
         self._formated_properties = {}
         for i in range(self.cProperties):
-            propertyName = str(self.rgPrids[i])
-            if propertyName != 'Unknown':
-                propertyVal = ''
-                if isinstance(self.rgData[i], PrtFourBytesOfLengthFollowedByData):
-                    if 'guid' in propertyName.lower():
-                        propertyVal = uuid.UUID(bytes_le=self.rgData[i].Data).hex
-                    else:
-                        try:
-                            propertyVal = self.rgData[i].Data.decode('utf-16')
-                        except:
-                            propertyVal = self.rgData[i].Data.hex()
-                else:
-                    property_name_lower =  propertyName.lower()
-                    if 'time' in property_name_lower:
-                        if len(self.rgData[i]) == 8:
-                            timestamp_in_nano, = struct.unpack('<Q', self.rgData[i])
-                            propertyVal = str(PropertySet.parse_filetime(timestamp_in_nano))
-                        else:
-                            timestamp_in_sec, = struct.unpack('<I', self.rgData[i])
-                            propertyVal = str(PropertySet.time32_to_datetime(timestamp_in_sec))
-                    elif 'height' in property_name_lower or \
-                            'width' in property_name_lower or \
-                            'offset' in property_name_lower or \
-                            'margin' in property_name_lower:
-                        size, = struct.unpack('<f', self.rgData[i])
-                        propertyVal = PropertySet.half_inch_size_to_pixels(size)
-                    elif 'langid' in property_name_lower:
-                        lcid, =struct.unpack('<H', self.rgData[i])
-                        propertyVal = '{}({})'.format(PropertySet.lcid_to_string(lcid), lcid)
-                    elif 'languageid' in property_name_lower:
-                        lcid, =struct.unpack('<I', self.rgData[i])
-                        propertyVal = '{}({})'.format(PropertySet.lcid_to_string(lcid), lcid)
-                    else:
-                        if isinstance(self.rgData[i], list):
-                            propertyVal = [str(i) for i in self.rgData[i]]
-                        else:
-                            propertyVal = str(self.rgData[i])
-                self._formated_properties[propertyName] = propertyVal
+            property_name = str(self.rgPrids[i])
+            if property_name == 'Unknown':
+                continue
+
+            data = self.rgData[i]
+            if isinstance(data, PrtFourBytesOfLengthFollowedByData):
+                property_val = self._format_prt_data(property_name, data)
+            else:
+                property_val = self._format_scalar_data(property_name, data)
+
+            self._formated_properties[property_name] = property_val
         return self._formated_properties
+
+    def _format_prt_data(self, property_name, data_obj):
+        if 'guid' in property_name.lower():
+            return uuid.UUID(bytes_le=data_obj.Data).hex
+
+        try:
+            val = data_obj.Data.decode('utf-16')
+            return val
+        except:
+            return data_obj.Data.hex()
+
+    def _format_scalar_data(self, property_name, data):
+        # Handle non-bytes types first (bool, list, etc)
+        if isinstance(data, bool):
+            return str(data)
+
+        if isinstance(data, list):
+            return [str(i) for i in data]
+
+        property_name_lower = property_name.lower()
+
+        if isinstance(data, bytes):
+            if 'time' in property_name_lower:
+                return self._format_time_property(data)
+
+            if any(x in property_name_lower for x in ['height', 'width', 'offset', 'margin']):
+                return self._format_dimension_property(data)
+
+            if 'langid' in property_name_lower:
+                return self._format_langid_property(data, is_32bit=False)
+
+            if 'languageid' in property_name_lower:
+                return self._format_langid_property(data, is_32bit=True)
+
+        return str(data)
+
+    def _format_time_property(self, data):
+        if len(data) == 8:
+            timestamp_in_nano, = struct.unpack('<Q', data)
+            return str(PropertySet.parse_filetime(timestamp_in_nano))
+        else:
+            timestamp_in_sec, = struct.unpack('<I', data)
+            return str(PropertySet.time32_to_datetime(timestamp_in_sec))
+
+    def _format_dimension_property(self, data):
+        size, = struct.unpack('<f', data)
+        return PropertySet.half_inch_size_to_pixels(size)
+
+    def _format_langid_property(self, data, is_32bit):
+        fmt = '<I' if is_32bit else '<H'
+        lcid, = struct.unpack(fmt, data)
+        return '{}({})'.format(PropertySet.lcid_to_string(lcid), lcid)
 
 
     def __str__(self):
