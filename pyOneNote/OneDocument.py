@@ -29,8 +29,6 @@ class OneDocument:
         self.header = Header(self.fh_onenote, debug=self.debug)
         self.root_file_node_list = FileNodeList(self.fh_onenote, self, self.header.fcrFileNodeListRoot, self)
 
-
-
     @staticmethod
     def traverse_nodes(root_file_node_list, nodes, filters):
         for fragment in root_file_node_list.fragments:
@@ -53,7 +51,7 @@ class OneDocument:
         for node in nodes:
             if hasattr(node, 'propertySet') and node.propertySet:
                 node.propertySet.body.indent= '\t\t'
-                self._properties.append({'type': str(node.data.body.jcid), 'identity':str(node.data.body.oid), 'val':node.propertySet.body.get_properties()})
+                self._properties.append({'type': str(node.data.body.jcid), 'type_id': node.data.body.jcid.jcid,'identity':str(node.data.body.oid), 'val':node.propertySet.body.get_properties()})
 
         return  self._properties
 
@@ -74,50 +72,54 @@ class OneDocument:
             return self._links
 
         self._links = []
-        seen: Set[Tuple[str, str]] = set()
+        nodes = []
+        filters = ['ObjectDeclaration2RefCountFND']
 
-        for property_set in self.get_properties():
-            type_name = str(property_set.get('type', ''))
-            identity = str(property_set.get('identity', ''))
-            props: Dict[str, Any] = property_set.get('val', {})
+        self._properties = []
 
-            wz_hyperlink_url = props.get('WzHyperlinkUrl')
-            if wz_hyperlink_url and self.debug:
-                logger.info(f'Found WzHyperlinkUrl: {wz_hyperlink_url}')  # Debug print
-            if isinstance(wz_hyperlink_url, str):
-                url = wz_hyperlink_url.rstrip('\x00').strip()
-                if url:
-                    key = (identity, url)
-                    if key not in seen:
-                        seen.add(key)
-                        self._links.append(
-                            {
-                                'type': type_name,
-                                'identity': identity,
-                                'url': url,
-                                'source': 'WzHyperlinkUrl',
-                            }
-                        )
+        OneDocument.traverse_nodes(self.root_file_node_list, nodes, filters)
+        for node in nodes:
+            if not hasattr(node, 'propertySet'):
+                continue
+            if not node.propertySet:
+                continue
 
-            if include_text_urls:
-                rich_text = props.get('RichEditTextUnicode')
-                if rich_text and self.debug:
-                    logger.info(f'Found RichEditTextUnicode: {rich_text}')  # Debug print
-                if isinstance(rich_text, str):
-                    for url in self._extract_urls_from_text(rich_text):
-                        key = (identity, url)
-                        if key not in seen:
-                            seen.add(key)
-                            self._links.append(
-                                {
-                                    'type': type_name,
-                                    'identity': identity,
-                                    'url': url,
-                                    'source': 'RichEditTextUnicode',
-                                }
-                            )
+            # 0x0006000E: "jcidRichTextOENode",
+            if node.data.body.jcid.jcid == 0x0006000E and include_text_urls:
+                rich_text = node.propertySet.body.get_properties().get('RichEditTextUnicode')
+                if not rich_text:
+                    continue
+                # 패턴: \ufddfHYPERLINK "URL" FriendlyName
+                match = re.search(r'\ufddfHYPERLINK\s+"([^"]+)"\s*(.*?)[\x00]?$', rich_text)
+                if not match:
+                    continue
+                url = match.group(1)
+                display_text = match.group(2)
+                logger.debug(f"type: {str(node.data.body.jcid)}, identity: {str(node.data.body.oid)}, properties: {node.propertySet.body.get_properties()}")  # Debug print
+                logger.debug(f"url: {url}, display_text: {display_text}, pos: {node.propertySet.body.rgPos[0]}")
+                self._links.append(
+                    {
+                        'type': str(node.data.body.jcid),
+                        'url': url,
+                        'display_text': display_text
+                    }
+                )
+
+            wz_hyperlink_url = node.propertySet.body.get_properties().get('WzHyperlinkUrl')
+            if wz_hyperlink_url:
+                if isinstance(wz_hyperlink_url, str):
+                    wz_hyperlink_url = wz_hyperlink_url.rstrip('\x00')
+                logger.debug(f"type: {str(node.data.body.jcid)}, identity: {str(node.data.body.oid)}, properties: {node.propertySet.body.get_properties()}")  # Debug print
+                logger.debug(f"WzHyperlinkUrl: {wz_hyperlink_url}")
+                self._links.append(
+                    {
+                        'type': str(node.data.body.jcid),
+                        'url': wz_hyperlink_url,
+                    }
+                )
 
         return self._links
+
 
     def get_files(self):
         if self._files:
