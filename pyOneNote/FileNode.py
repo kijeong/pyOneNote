@@ -229,8 +229,18 @@ class FileNode:
             fh_onenote.seek(current_offset)
         elif self.file_node_header.file_node_type == "ReadOnlyObjectDeclaration2LargeRefCountFND":
             self.data = ReadOnlyObjectDeclaration2LargeRefCountFND(fh_onenote, self.document, self.file_node_header)
+            current_offset = fh_onenote.tell()
+            if self.data.base.body.jcid.IsPropertySet:
+                fh_onenote.seek(self.data.base.ref.stp)
+                self.propertySet = ObjectSpaceObjectPropSet(fh_onenote, document)
+            fh_onenote.seek(current_offset)
         elif self.file_node_header.file_node_type == "ReadOnlyObjectDeclaration2RefCountFND":
             self.data = ReadOnlyObjectDeclaration2RefCountFND(fh_onenote, self.document, self.file_node_header)
+            current_offset = fh_onenote.tell()
+            if self.data.base.body.jcid.IsPropertySet:
+                fh_onenote.seek(self.data.base.ref.stp)
+                self.propertySet = ObjectSpaceObjectPropSet(fh_onenote, document)
+            fh_onenote.seek(current_offset)
         elif self.file_node_header.file_node_type == "FileDataStoreListReferenceFND":
             self.data = FileDataStoreListReferenceFND(fh_onenote, self.file_node_header)
         elif self.file_node_header.file_node_type == "FileDataStoreObjectReferenceFND":
@@ -756,12 +766,15 @@ class PropertySet:
         self.current = fh_onenote.tell()
         self.cProperties, = struct.unpack('<H', fh_onenote.read(2))
         self.rgPrids = []
+        self.property_name_to_index = {}
         self.indent = ''
         self.document = document
         self.current_revision = document.cur_revision
         self._formated_properties = None
         for i in range(self.cProperties):
-            self.rgPrids.append(PropertyID(fh_onenote))
+            prid = PropertyID(fh_onenote)
+            self.rgPrids.append(prid)
+            self.property_name_to_index[str(prid)] = i
 
         self.rgData = []
         self.rgPos = []
@@ -819,6 +832,28 @@ class PropertySet:
                 self.rgData.append(PropertySet(fh_onenote, OIDs, OSIDs, ContextIDs, document))
             else:
                 raise ValueError('rgPrids[i].type is not valid')
+
+    def get_property_index(self, property_name):
+        return self.property_name_to_index.get(property_name)
+
+    def get_property_pos(self, property_name):
+        index = self.get_property_index(property_name)
+        if index is not None:
+            return self.rgPos[index]
+        return None
+
+    def get_property_value(self, property_name):
+        if self._formated_properties is not None and property_name in self._formated_properties:
+            return self._formated_properties[property_name]
+
+        index = self.get_property_index(property_name)
+        if index is None:
+            return None
+
+        data = self.rgData[index]
+        if isinstance(data, PrtFourBytesOfLengthFollowedByData):
+            return self._format_prt_data(property_name, data)
+        return self._format_scalar_data(property_name, data)
 
     @staticmethod
     def get_compact_ids(stream_of_context_ids, count):
