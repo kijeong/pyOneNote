@@ -886,6 +886,13 @@ class PropertySet:
         if 'guid' in property_name.lower():
             return uuid.UUID(bytes_le=data_obj.Data).hex
 
+        # TextExtendedAscii는 확장 ASCII(non-UTF-16)로 인코딩됨 (MS-ONE 2.2.89)
+        if property_name == 'TextExtendedAscii':
+            try:
+                return data_obj.Data.decode('cp1252')
+            except Exception:
+                return data_obj.Data.hex()
+
         try:
             val = data_obj.Data.decode('utf-16')
             return val

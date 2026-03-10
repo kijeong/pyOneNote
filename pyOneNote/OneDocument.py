@@ -8,9 +8,36 @@ from pyOneNote.FileNode import (
     FileNodeList,
     FileDataStoreObjectReferenceFND,
     ObjectDeclarationFileData3RefCountFND,
+    ReadOnlyObjectDeclaration2RefCountFND,
+    ReadOnlyObjectDeclaration2LargeRefCountFND,
 )
 
 logger = logging.getLogger(__name__)
+
+# 자동 하이퍼링크 탐지를 위한 URL 패턴 (OneNote가 텍스트를 자동으로 하이퍼링크로 변환하는 경우)
+_AUTO_HYPERLINK_PATTERN = re.compile(
+    r'(https?://\S+|ftp://\S+|www\.\S+)',
+    re.IGNORECASE,
+)
+
+
+def get_next_node_identity(fileNodes, node):
+    found = False
+    for current in fileNodes:
+        if found:
+            return current
+        if current is node:
+            found = True
+    return None
+
+
+def get_previous_node_identity(fileNodes, node):
+    prev = None
+    for current in fileNodes:
+        if current is node:
+            return prev
+        prev = current
+    return None
 
 class OneDocument:
     def __init__(self, fh_onenote, debug=False):
@@ -56,67 +83,177 @@ class OneDocument:
         return  self._properties
 
     @staticmethod
-    def _extract_urls_from_text(text: str) -> List[str]:
-        matches = re.findall(r"(?:https?://|mailto:|onenote:)[^\s<>\"']+", text, flags=re.IGNORECASE)
-        urls: List[str] = []
-        seen: Set[str] = set()
-        for match in matches:
-            url = match.rstrip(")].,;:!?\"'\u3001\u3002")
-            if url and url not in seen:
-                seen.add(url)
-                urls.append(url)
-        return urls
+    def _get_node_body(node):
+        """ReadOnly 타입은 data.base.body 경로, 일반 타입은 data.body 경로로 body를 반환한다."""
+        if isinstance(node.data, (ReadOnlyObjectDeclaration2RefCountFND,
+                                  ReadOnlyObjectDeclaration2LargeRefCountFND)):
+            return node.data.base.body
+        return node.data.body
+
+    @staticmethod
+    def _get_props_text(props: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+        """MS-ONE 2.2.23: RichEditTextUnicode가 우선, 없으면 TextExtendedAscii를 사용한다.
+
+        Returns:
+            (rich_text, text_source) 튜플. 텍스트가 없으면 (None, None).
+        """
+        for key in ('RichEditTextUnicode', 'TextExtendedAscii'):
+            value = props.get(key)
+            if value and isinstance(value, str):
+                return value, key
+        return None, None
+
+    @staticmethod
+    def _build_text_formatting(
+        props: Dict[str, Any],
+        oid_to_props: Dict[str, Any],
+    ) -> List[Any]:
+        """TextRunFormatting 참조를 실제 properties로 치환한 리스트를 반환한다."""
+        return [
+            oid_to_props.get(ref, ref)
+            for ref in props.get('TextRunFormatting', [])
+        ]
+
+    @staticmethod
+    def _extract_explicit_hyperlink(
+        rich_text: str,
+        body,
+        text_source: str,
+        props: Dict[str, Any],
+        oid_to_props: Dict[str, Any],
+        property_set_body=None,
+    ) -> Optional[Dict[str, Any]]:
+        """패턴 1: 명시적 하이퍼링크 — \\ufddfHYPERLINK "URL" FriendlyName 추출.
+
+        매칭되지 않으면 None을 반환한다.
+        """
+        match = re.search(r'\ufddfHYPERLINK\s+"([^"]+)"\s*(.*?)[\x00]?$', rich_text)
+        if not match:
+            return None
+
+        url = match.group(1)
+        display_text = match.group(2)
+        logger.debug(
+            "type: %s, identity: %s, properties: %s",
+            body.jcid, body.oid, props,
+        )
+        if property_set_body is not None:
+            logger.debug(
+                "url: %s, display_text: %s, source: %s, pos: %s",
+                url, display_text, text_source,
+                property_set_body.get_property_pos(text_source),
+            )
+
+        return {
+            'type': str(body.jcid),
+            'url': url,
+            'display_text': display_text,
+            'source': text_source,
+            'full_text': rich_text,
+            # 'text_formatting': OneDocument._build_text_formatting(props, oid_to_props),
+        }
+
+    @staticmethod
+    def _extract_auto_hyperlinks(
+        rich_text: str,
+        body,
+        text_source: str,
+        props: Dict[str, Any],
+        oid_to_props: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """패턴 2: 자동 하이퍼링크 — 텍스트 내 URL 패턴 탐지.
+
+        OneNote가 "www.google.com" 등을 자동으로 하이퍼링크로 변환한 경우를 처리한다.
+        """
+        results: List[Dict[str, Any]] = []
+        text_formatting = OneDocument._build_text_formatting(props, oid_to_props)
+
+        for auto_url in _AUTO_HYPERLINK_PATTERN.findall(rich_text):
+            # 후행 null 문자 제거
+            auto_url = auto_url.rstrip('\x00')
+            if not auto_url:
+                continue
+
+            logger.debug(
+                "type: %s, identity: %s, properties: %s",
+                body.jcid, body.oid, props,
+            )
+            logger.debug("auto-hyperlink url: %s, source: %s", auto_url, text_source)
+
+            results.append({
+                'type': str(body.jcid),
+                'url': auto_url,
+                'display_text': auto_url,
+                'source': text_source,
+                'full_text': rich_text,
+                # 'text_formatting': text_formatting,
+            })
+
+        return results
 
     def get_links(self, include_text_urls: bool = True) -> List[Dict[str, str]]:
         if self._links is not None:
             return self._links
 
         self._links = []
-        nodes = []
-        filters = ['ObjectDeclaration2RefCountFND']
+        nodes: List[Any] = []
+        filters = [
+            'ObjectDeclaration2RefCountFND',
+            'ReadOnlyObjectDeclaration2RefCountFND',
+            'ReadOnlyObjectDeclaration2LargeRefCountFND',
+        ]
 
         self._properties = []
 
         OneDocument.traverse_nodes(self.root_file_node_list, nodes, filters)
+
+        # oid(ExtendedGUID 문자열) → 해당 객체의 properties 룩업 테이블
+        oid_to_props: Dict[str, Any] = {}
         for node in nodes:
-            if not hasattr(node, 'propertySet'):
-                continue
-            if not node.propertySet:
+            if hasattr(node, 'propertySet') and node.propertySet:
+                oid_str = str(self._get_node_body(node).oid)
+                oid_to_props[oid_str] = node.propertySet.body.get_properties()
+
+        for node in nodes:
+            if not hasattr(node, 'propertySet') or not node.propertySet:
                 continue
 
-            # 0x0006000E: "jcidRichTextOENode",
-            if node.data.body.jcid.jcid == 0x0006000E and include_text_urls:
-                rich_text = node.propertySet.body.get_properties().get('RichEditTextUnicode')
-                if not rich_text:
-                    continue
-                # 패턴: \ufddfHYPERLINK "URL" FriendlyName
-                match = re.search(r'\ufddfHYPERLINK\s+"([^"]+)"\s*(.*?)[\x00]?$', rich_text)
-                if not match:
-                    continue
-                url = match.group(1)
-                display_text = match.group(2)
-                logger.debug(f"type: {str(node.data.body.jcid)}, identity: {str(node.data.body.oid)}, properties: {node.propertySet.body.get_properties()}")  # Debug print
-                logger.debug(f"url: {url}, display_text: {display_text}, pos: {node.propertySet.body.rgPos[0]}")
-                self._links.append(
-                    {
-                        'type': str(node.data.body.jcid),
-                        'url': url,
-                        'display_text': display_text
-                    }
+            body = self._get_node_body(node)
+            props = node.propertySet.body.get_properties()
+
+            # 텍스트에서 하이퍼링크 추출
+            props_text, text_source = self._get_props_text(props)
+            if props_text:
+                link = self._extract_explicit_hyperlink(
+                    props_text, body, text_source, props, oid_to_props,
+                    property_set_body=node.propertySet.body,
                 )
+                if link:
+                    self._links.append(link)
+                else:
+                    self._links.extend(
+                        self._extract_auto_hyperlinks(
+                            props_text, body, text_source, props, oid_to_props,
+                        )
+                    )
 
-            wz_hyperlink_url = node.propertySet.body.get_properties().get('WzHyperlinkUrl')
+            # WzHyperlinkUrl 프로퍼티에서 하이퍼링크 추출
+            wz_hyperlink_url = props.get('WzHyperlinkUrl')
             if wz_hyperlink_url:
                 if isinstance(wz_hyperlink_url, str):
                     wz_hyperlink_url = wz_hyperlink_url.rstrip('\x00')
-                logger.debug(f"type: {str(node.data.body.jcid)}, identity: {str(node.data.body.oid)}, properties: {node.propertySet.body.get_properties()}")  # Debug print
-                logger.debug(f"WzHyperlinkUrl: {wz_hyperlink_url}")
-                self._links.append(
-                    {
-                        'type': str(node.data.body.jcid),
-                        'url': wz_hyperlink_url,
-                    }
+                logger.debug(
+                    "type: %s, identity: %s, properties: %s",
+                    body.jcid, body.oid, props,
                 )
+                logger.debug("WzHyperlinkUrl: %s", wz_hyperlink_url)
+                self._links.append({
+                    'type': str(body.jcid),
+                    'url': wz_hyperlink_url,
+                    'display_text': wz_hyperlink_url,
+                    'source': 'WzHyperlinkUrl',
+                    'full_text': wz_hyperlink_url,
+                })
 
         return self._links
 
