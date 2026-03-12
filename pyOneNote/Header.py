@@ -1,6 +1,6 @@
 import struct
 import uuid
-from pyOneNote.FileNode import FileChunkReference64x32, FileChunkReference32, FileNodeChunkReference
+from .FileNode import FileChunkReference64x32, FileChunkReference32, FileNodeChunkReference
 
 
 class Header:

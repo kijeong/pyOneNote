@@ -1,4 +1,4 @@
-from pyOneNote.OneDocument import OneDocument
+from .OneDocument import OneDocument
 import math
 import sys
 import os

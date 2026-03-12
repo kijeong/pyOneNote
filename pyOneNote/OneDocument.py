@@ -3,8 +3,8 @@ import hashlib
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from pyOneNote.Header import Header
-from pyOneNote.FileNode import (
+from .Header import Header
+from .FileNode import (
     FileNodeList,
     FileDataStoreObjectReferenceFND,
     ObjectDeclarationFileData3RefCountFND,
