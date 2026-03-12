@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # 자동 하이퍼링크 탐지를 위한 URL 패턴 (OneNote가 텍스트를 자동으로 하이퍼링크로 변환하는 경우)
 _AUTO_HYPERLINK_PATTERN = re.compile(
-    r'(https?://\S+|ftp://\S+|www\.\S+)',
+    r'(https?://\S+|ftp://\S+|ftps?://\S+|onenote:\S+|mailto:\S+|file:///\S+|tel:\S+|ssh://\S+|www\.\S+)',
     re.IGNORECASE,
 )
 
