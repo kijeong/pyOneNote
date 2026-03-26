@@ -390,19 +390,29 @@ class OneDocument:
                 else:
                     content_bytes = b""
 
+                filename = str(file_entry.get("filename", ""))
+                source_filepath = str(file_entry.get("source_filepath", ""))
+
                 key_str = str(key)
                 if files_include_content:
-                    files_json[key_str] = {
+                    file_info: Dict[str, str] = {
                         "extension": extension,
                         "content": content_bytes.hex(),
                         "identity": identity,
                     }
                 else:
-                    files_json[key_str] = {
+                    file_info = {
                         "extension": extension,
                         "identity": identity,
                         "content_sha256": hashlib.sha256(content_bytes).hexdigest(),
                     }
+
+                if filename:
+                    file_info["filename"] = filename
+                if source_filepath:
+                    file_info["source_filepath"] = source_filepath
+
+                files_json[key_str] = file_info
 
             res["files"] = files_json
 
