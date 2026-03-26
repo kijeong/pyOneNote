@@ -70,7 +70,9 @@ class OneDocument:
         if self._properties:
             return self._properties
         nodes = []
-        filters = ['ObjectDeclaration2RefCountFND']
+        filters = ['ObjectDeclaration2RefCountFND',
+                   'ReadOnlyObjectDeclaration2RefCountFND',
+                   'ReadOnlyObjectDeclaration2LargeRefCountFND']
 
         self._properties = []
 
@@ -78,7 +80,8 @@ class OneDocument:
         for node in nodes:
             if hasattr(node, 'propertySet') and node.propertySet:
                 node.propertySet.body.indent= '\t\t'
-                self._properties.append({'type': str(node.data.body.jcid), 'type_id': node.data.body.jcid.jcid,'identity':str(node.data.body.oid), 'val':node.propertySet.body.get_properties()})
+                body = self._get_node_body(node)
+                self._properties.append({'type': str(body.jcid), 'type_id': body.jcid.jcid,'identity':str(body.oid), 'val':node.propertySet.body.get_properties()})
 
         return  self._properties
 
@@ -259,6 +262,23 @@ class OneDocument:
 
 
     def get_files(self):
+        """OneNote 문서에 포함된 파일 데이터를 추출하여 딕셔너리로 반환한다.
+
+        Returns:
+            Dict[str, dict]: GUID를 키로 하며, 각 값은 다음 필드를 포함:
+                - extension: 파일 확장자 (예: ".png", ".jpg")
+                - content:   파일 바이너리 데이터
+                - identity:  파일 데이터 객체의 OID 문자열 (ExtendedGUID)
+                - filename:  원본 파일명. property set에서 매칭된 경우에만 할당되며,
+                             매칭되지 않는 내부 변환 포맷(xps, emf 등)은 빈 문자열.
+
+        파일 데이터는 두 종류의 FileNode에서 수집한다:
+        - FileDataStoreObjectReferenceFND: 파일의 바이너리 content를 제공
+        - ObjectDeclarationFileData3RefCountFND: 파일의 extension, identity를 제공
+
+        filename은 property set에서 container OID와 identity를 매칭하여 할당한다.
+        상세 매칭 규칙은 아래 주석 참조.
+        """
         if self._files:
             return self._files
         nodes = []
@@ -273,15 +293,56 @@ class OneDocument:
             if hasattr(node, "data") and node.data:
                 if isinstance(node.data, FileDataStoreObjectReferenceFND):
                     if not str(node.data.guidReference) in self._files:
-                        self._files[str(node.data.guidReference)] = {"extension": "", "content": "", "identity": ""}
+                        self._files[str(node.data.guidReference)] = {"extension": "", "content": "", "identity": "", "filename": ""}
                     self._files[str(node.data.guidReference)]["content"] = node.data.fileDataStoreObject.FileData
                 elif isinstance(node.data, ObjectDeclarationFileData3RefCountFND):
                     guid = node.data.FileDataReference.StringData.replace("<ifndf>{", "").replace("}", "")
                     guid = guid.lower()
                     if not guid in self._files:
-                        self._files[guid] = {"extension": "", "content": "", "identity": ""}
+                        self._files[guid] = {"extension": "", "content": "", "identity": "", "filename": ""}
                     self._files[guid]["extension"] = node.data.Extension.StringData
                     self._files[guid]["identity"] = str(node.data.oid)
+
+        # EmbeddedFileName / ImageFilename을 properties에서 조회하여 files에 할당
+        #
+        # OneNote는 하나의 이미지를 여러 포맷으로 저장할 수 있다:
+        #   jcidEmbeddedFileNode: EmbeddedFileContainer → 원본 파일 (EmbeddedFileName)
+        #   jcidImageNode:        PictureContainer      → 내부 렌더링 포맷 (xps, emf 등)
+        #   jcidImageNode:        WebPictureContainer14  → 웹 최적화 변환 (png 등)
+        #
+        # jcidImageNode에 WebPictureContainer14가 존재하면 원본은 별도의
+        # jcidEmbeddedFileNode에서 관리되므로, PictureContainer에 ImageFilename을
+        # 할당하지 않는다. WebPictureContainer14가 없는 경우에만 PictureContainer가
+        # 직접 저장된 원본 이미지이므로 ImageFilename을 할당한다.
+        for prop in self.get_properties():
+            val = prop["val"]
+
+            if prop["type"] == "jcidEmbeddedFileNode":
+                container = val.get("EmbeddedFileContainer")
+                filename = val.get("EmbeddedFileName")
+                if container and filename:
+                    identity_key = container[0]
+                    for file_entry in self._files.values():
+                        if file_entry["identity"] == identity_key:
+                            file_entry["filename"] = filename
+                            source_filepath = val.get('SourceFilepath')
+                            if source_filepath:
+                                file_entry["source_filepath"] = source_filepath
+                            break
+
+            elif prop["type"] == "jcidImageNode":
+                # WebPictureContainer14가 있으면 내부 변환 포맷이므로 skip
+                if val.get("WebPictureContainer14"):
+                    continue
+                container = val.get("PictureContainer")
+                filename = val.get("ImageFilename")
+                if container and filename:
+                    identity_key = container[0]
+                    for file_entry in self._files.values():
+                        if file_entry["identity"] == identity_key:
+                            file_entry["filename"] = filename
+                            break
+
         return self._files
 
 
