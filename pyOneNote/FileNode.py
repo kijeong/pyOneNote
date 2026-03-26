@@ -744,9 +744,19 @@ class ObjectSpaceObjectStreamOfIDs:
             self.body.append(CompactID(fh_onenote, document))
 
     def read(self):
+        """스트림에서 다음 CompactID를 읽고 커서를 전진시킨다.
+
+        PropertySet 내에서 ObjectID(type 0x8), ArrayOfObjectIDs(type 0x9) 등의
+        속성이 OIDs 스트림을 순차적으로 소비한다. 예를 들어 jcidImageNode에
+        PictureContainer(0x20001C3F)와 WebPictureContainer14(0x200034C8)가
+        동시에 존재하면, PropertyID 순서대로 각각 다른 CompactID를 받아야 한다.
+        head를 증가시키지 않으면 모든 ObjectID 속성이 동일한 첫 번째
+        CompactID를 반환하게 되어 container↔file 매칭이 오동작한다.
+        """
         res = None
         if self.head < len(self.body):
             res = self.body[self.head]
+            self.head += 1
         return res
 
     def reset(self):
