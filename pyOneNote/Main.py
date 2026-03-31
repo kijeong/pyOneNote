@@ -78,13 +78,13 @@ def process_onenote_file(
         print('Headers\n####################################################################')
         indent = '\t'
         for key, header in data['headers'].items():
-            print('{}{}: {}'.format(indent, key, header))
+            print(f'{indent}{key}: {header}')
 
         print('\n\nProperties\n####################################################################')
         indent = '\t'
         file_metadata ={}
         for propertySet in data['properties']:
-            print('{}{}({}):'.format(indent, propertySet['type'], propertySet['identity']))
+            print(f"{indent}{propertySet['type']}({propertySet['identity']}):")
             # jcidEmbeddedFileNode (0x00060035): 내장된 파일 노드 (MS-ONE 2.2.32)
             # 문서에 첨부된 파일 정보를 포함하는 노드 타입
             if propertySet['type'] == "jcidEmbeddedFileNode":
@@ -98,18 +98,18 @@ def process_onenote_file(
 
 
             for property_name, property_val in propertySet['val'].items():
-                print('{}{}: {}'.format(indent+'\t', property_name, str(property_val)))
+                print(f"{indent+'\t'}{property_name}: {str(property_val)}")
             print("")
 
         print('\n\nEmbedded Files\n####################################################################')
         indent = '\t'
         for name, embedded_file in data['files'].items():
-            print('{}{} ({}):'.format(indent, name, embedded_file['identity']))
-            print('\t{}Extension: {}'.format(indent, embedded_file['extension']))
+            print(f"{indent}{name} ({embedded_file['identity']}):")
+            print(f"\t{indent}Extension: {embedded_file['extension']}")
             if embedded_file['identity'] in file_metadata:
                 for property_name, property_val in file_metadata[embedded_file['identity']].items():
-                    print('{}{}: {}'.format(indent+'\t', property_name, str(property_val)))
-            print('{}'.format( get_hex_format(embedded_file['content'][:256], 16, indent+'\t')))
+                    print(f"{indent+'\t'}{property_name}: {str(property_val)}")
+            print(f"{get_hex_format(embedded_file['content'][:256], 16, indent+'\t')}")
 
         if extension and not extension.startswith("."):
             extension = "." + extension
@@ -121,7 +121,7 @@ def process_onenote_file(
 
             with open(
                     os.path.join(output_dir,
-                                 "file_{}{}{}".format(counter, extracted_file["extension"], extension)), "wb"
+                                 f"file_{counter}{extracted_file['extension']}{extension}"), "wb"
             ) as output_file:
                 output_file.write(extracted_file["content"])
             counter += 1

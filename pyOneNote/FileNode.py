@@ -167,7 +167,7 @@ class FileNodeHeader:
         self.file_node_id = fileNodeHeader & 0x3ff
         entry = self._FileNodeIDs.get(self.file_node_id)
         if not entry:
-            self.file_node_type = "UnknownType_0x{:03X}".format(self.file_node_id)
+            self.file_node_type = f"UnknownType_0x{self.file_node_id:03X}"
         else:
              self.file_node_type = entry[2]
 
@@ -298,7 +298,7 @@ class ExtendedGUID:
         self.guid = uuid.UUID(bytes_le=self.guid)
 
     def __repr__(self):
-        return 'ExtendedGUID:(guid:{}, n:{})'.format(self.guid, self.n)
+        return f'ExtendedGUID:(guid:{self.guid}, n:{self.n})'
 
 
 class FileNodeChunkReference:
@@ -349,7 +349,7 @@ class FileNodeChunkReference:
             data_size += 2
             cb_compressed = True
 
-        self.stp, self.cb = struct.unpack('<{}{}'.format(stp_type, cb_type), fh_onenote.read(data_size))
+        self.stp, self.cb = struct.unpack(f'<{stp_type}{cb_type}', fh_onenote.read(data_size))
         if stp_compressed:
             self.stp *= 8
 
@@ -362,7 +362,7 @@ class FileNodeChunkReference:
         return res
 
     def __repr__(self):
-        return 'FileChunkReference:(stp:{}, cb:{})'.format(self.stp, self.cb)
+        return f'FileChunkReference:(stp:{self.stp}, cb:{self.cb})'
 
 
 class FileChunkReference64x32(FileNodeChunkReference):
@@ -376,7 +376,7 @@ class FileChunkReference64x32(FileNodeChunkReference):
         self.invalid = 0xffffffffffffffff
 
     def __repr__(self):
-        return 'FileChunkReference64x32:(stp:{}, cb:{})'.format(self.stp, self.cb)
+        return f'FileChunkReference64x32:(stp:{self.stp}, cb:{self.cb})'
 
 
 class FileChunkReference32(FileNodeChunkReference):
@@ -389,7 +389,7 @@ class FileChunkReference32(FileNodeChunkReference):
         self.invalid = 0xffffffff
 
     def __repr__(self):
-        return 'FileChunkReference32:(stp:{}, cb:{})'.format(self.stp, self.cb)
+        return f'FileChunkReference32:(stp:{self.stp}, cb:{self.cb})'
 
 
 class FileNodeData:
@@ -517,10 +517,7 @@ class FileDataStoreObjectReferenceFND(FileNodeData):
         fh_onenote.seek(current_offset)
 
     def __str__(self):
-        return 'FileDataStoreObjectReferenceFND: (guidReference:{},fileDataStoreObject:{}'.format(
-            self.guidReference,
-            str(self.fileDataStoreObject)
-        )
+        return f'FileDataStoreObjectReferenceFND: (guidReference:{self.guidReference},fileDataStoreObject:{str(self.fileDataStoreObject)}'
 
 
 class ObjectInfoDependencyOverrideData:
@@ -566,11 +563,7 @@ class ObjectDeclarationFileData3RefCountFND(FileNodeData):
         self.Extension = StringInStorageBuffer(fh_onenote)
 
     def __str__(self):
-        return 'ObjectDeclarationFileData3RefCountFND: (jcid:{}, Extension:{}, FileDataReference:{}'.format(
-            self.jcid,
-            self.Extension,
-            self.FileDataReference
-        )
+        return f'ObjectDeclarationFileData3RefCountFND: (jcid:{self.jcid}, Extension:{self.Extension}, FileDataReference:{self.FileDataReference}'
 
 
 class RevisionRoleDeclarationFND(FileNodeData):
@@ -605,14 +598,12 @@ class CompactID:
         self.current_revision = self.document.cur_revision
 
     def __str__(self):
-        return '<ExtendedGUID> ({}, {})'.format(
-        self.document._global_identification_table[self.current_revision][self.guidIndex],
-        self.n)
+        guid = self.document._global_identification_table[self.current_revision][self.guidIndex]
+        return f'<ExtendedGUID> ({guid}, {self.n})'
 
     def __repr__(self):
-        return '<ExtendedGUID> ({}, {})'.format(
-        self.document._global_identification_table[self.current_revision][self.guidIndex],
-        self.n)
+        guid = self.document._global_identification_table[self.current_revision][self.guidIndex]
+        return f'<ExtendedGUID> ({guid}, {self.n})'
 
 
 class JCID:
@@ -697,7 +688,7 @@ class StringInStorageBuffer:
         self.cch, = struct.unpack('<I', fh_onenote.read(4))
         self.length_in_bytes = self.cch * 2
         # StringData: UTF-16LE로 인코딩된 문자열 데이터
-        self.StringData, = struct.unpack('{}s'.format(self.length_in_bytes), fh_onenote.read(self.length_in_bytes))
+        self.StringData, = struct.unpack(f'{self.length_in_bytes}s', fh_onenote.read(self.length_in_bytes))
         self.StringData = self.StringData.decode('utf-16')
 
     def __str__(self):
@@ -981,13 +972,13 @@ class PropertySet:
     def _format_langid_property(self, data, is_32bit):
         fmt = '<I' if is_32bit else '<H'
         lcid, = struct.unpack(fmt, data)
-        return '{}({})'.format(PropertySet.lcid_to_string(lcid), lcid)
+        return f'{PropertySet.lcid_to_string(lcid)}({lcid})'
 
 
     def __str__(self):
         result = ''
         for propertyName, propertyVal in self.get_properties().items():
-            result += '{}{}: {}\n'.format(self.indent, propertyName, propertyVal)
+            result += f'{self.indent}{propertyName}: {propertyVal}\n'
         return result
 
     @staticmethod
@@ -1043,7 +1034,7 @@ class PrtFourBytesOfLengthFollowedByData:
         self.cb, = struct.unpack('<I', fh_onenote.read(4))
         if MAX_READ_SIZE < self.cb:
             raise ValueError(f"Property data size {self.cb} exceeds sanity limit")
-        self.Data, = struct.unpack('{}s'.format(self.cb), fh_onenote.read(self.cb))
+        self.Data, = struct.unpack(f'{self.cb}s', fh_onenote.read(self.cb))
 
     def __str__(self):
         return self.Data.hex()

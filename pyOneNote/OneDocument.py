@@ -419,8 +419,7 @@ class OneDocument:
         return res
 
     def __str__(self):
-        return '{}\n{}\n{}'.format(str(self.header),
-                                   str(self.rootFileNode))
+        return f'{str(self.header)}\n{str(self.rootFileNode)}'
 
 
 
