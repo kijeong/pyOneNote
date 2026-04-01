@@ -194,6 +194,8 @@ class FileNode:
     count = 0
     def __init__(self, fh_onenote, document, file_node_list):
         self.document= document
+        # FileNode 데이터의 시작 위치
+        self._file_offset = fh_onenote.tell()
         self.file_node_header = FileNodeHeader(fh_onenote)
         self.container = file_node_list
 
@@ -282,6 +284,7 @@ class FileNode:
             self.data = None
 
         current_offset = fh_onenote.tell()
+        self._file_end = current_offset  # FileNode 데이터의 끝 위치
         if self.file_node_header.baseType == 2 and self.data is not None:
             self.children.append(FileNodeList(fh_onenote, self.document, self.data.ref, self))
         fh_onenote.seek(current_offset)
@@ -684,6 +687,8 @@ class StringInStorageBuffer:
     """MS-ONESTORE 2.2.3 StringInStorageBuffer 구조체
     UTF-16으로 인코딩된 문자열을 저장하는 구조체"""
     def __init__(self, fh_onenote):
+        # StringInStorageBuffer 시작위치
+        self._file_offset = fh_onenote.tell()
         # cch: 문자 개수 (UTF-16 문자 단위)
         self.cch, = struct.unpack('<I', fh_onenote.read(4))
         self.length_in_bytes = self.cch * 2
@@ -708,7 +713,9 @@ class FileDataStoreObject:
         if MAX_READ_SIZE < self.cbLength:
             raise ValueError(f"File data size {self.cbLength} exceeds sanity limit")
         # FileData: 실제 파일 데이터
-        self.FileData, = struct.unpack('{}s'.format(self.cbLength), fh_onenote.read(self.cbLength))
+        self.file_data_start = fh_onenote.tell()
+        self.FileData, = struct.unpack(f'{self.cbLength}s', fh_onenote.read(self.cbLength))
+        self.file_data_end = fh_onenote.tell()
         fh_onenote.seek(fileNodeChunkReference.stp + fileNodeChunkReference.cb - 16)
         # guidFooter: 푸터 GUID (guidHeader와 동일해야 함)
         self.guidFooter, = struct.unpack('16s', fh_onenote.read(16))
