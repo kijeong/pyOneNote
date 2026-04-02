@@ -23,9 +23,19 @@ class FileNodeListHeader:
 class FileNodeList:
     """MS-ONESTORE 2.4 File Node List
     파일 내 데이터를 저장하고 참조하기 위한 FileNode 구조체들의 리스트"""
+
+    def display(self, prefix="", is_last=True):
+        connector = "└─ " if is_last else "├─ "
+        logger.debug(f"{prefix}{connector}FileNodeList [0x{self._file_offset:0>8X}:0x{self._file_end:0>8X}]")
+        child_prefix = prefix + ("   " if is_last else "│  ")
+        for i, fragment in enumerate(self.fragments):
+            fragment.display(child_prefix, i == len(self.fragments) - 1)
+
     def __init__(self, fh_onenote, document, file_chunk_reference, container):
+        self._file_offset = file_chunk_reference.stp
+        self._file_end = file_chunk_reference.stp + file_chunk_reference.cb
         fh_onenote.seek(file_chunk_reference.stp)
-        self.end = file_chunk_reference.stp + file_chunk_reference.cb
+        self.end = self._file_end
         self.fragments = []
         self.container = container
 
@@ -44,7 +54,21 @@ class FileNodeList:
 class FileNodeListFragment:
     """MS-ONESTORE 2.4.1 FileNodeListFragment 구조체
     FileNode 구조체들의 시퀀스를 포함하는 fragment"""
+
+    def display(self, prefix="", is_last=True):
+        connector = "└─ " if is_last else "├─ "
+        hdr = self.fileNodeListHeader
+        logger.debug(
+            f"{prefix}{connector}FileNodeListFragment [0x{self._file_offset:0>8X}:0x{self._file_end:0>8X}]"
+            f" ID={hdr.FileNodeListID} Seq={hdr.nFragmentSequence}"
+        )
+        child_prefix = prefix + ("   " if is_last else "│  ")
+        for i, file_node in enumerate(self.fileNodes):
+            file_node.display(child_prefix, i == len(self.fileNodes) - 1)
+
     def __init__(self, fh_onenote, document, end, file_node_list):
+        self._file_offset = fh_onenote.tell()
+        self._file_end = end
         self.fileNodes = []
         self.fileNodeListHeader = FileNodeListHeader(fh_onenote)
         self.container = file_node_list
@@ -192,6 +216,14 @@ def get_containers_name_upwards(container):
 
 class FileNode:
     count = 0
+
+    def display(self, prefix="", is_last=True):
+        connector = "└─ " if is_last else "├─ "
+        logger.debug(f"{prefix}{connector}[0x{self._file_offset:0>8X}:0x{self._file_end:0>8X}] {self.file_node_header.file_node_type} {self.file_node_header.baseType}")
+        child_prefix = prefix + ("   " if is_last else "│  ")
+        for i, child in enumerate(self.children):
+            child.display(child_prefix, i == len(self.children) - 1)
+
     def __init__(self, fh_onenote, document, file_node_list):
         self.document= document
         # FileNode 데이터의 시작 위치

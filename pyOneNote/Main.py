@@ -16,7 +16,7 @@ def init_logger(debug: bool = False):
     handlers = [logging.FileHandler("pyonenote.log", encoding="utf-8")]
 
     if debug:
-        fmt = "%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d - %(message)s"
+        fmt = "%(asctime)s [%(levelname)s] %(filename)s:%(lineno)04d - %(message)s"
         level = logging.DEBUG
         handlers.append(logging.StreamHandler(sys.stdout))
 

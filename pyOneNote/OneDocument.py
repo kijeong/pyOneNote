@@ -260,6 +260,36 @@ class OneDocument:
 
         return self._links
 
+    def display(self):
+        """root_file_node_list의 전체 FileNode 트리를 Composite 패턴으로 출력한다.
+
+        출력 예시::
+
+            [DISPLAY] OneDocument tree:
+            └─ FileNodeList [0x00000410:0x00001000]
+               └─ FileNodeListFragment [0x00000410:0x00001000] ID=1 Seq=0
+                  ├─ [0x00000420:0x0000042B] ObjectSpaceManifestListReferenceFND 2
+                  │  └─ FileNodeList [0x00001178:0x00001800]
+                  │     └─ FileNodeListFragment [0x00001178:0x00001800] ID=2 Seq=0
+                  │        ├─ [0x00001188:0x000011A0] ObjectSpaceManifestListStartFND 0
+                  │        ├─ [0x000011A0:0x000011A7] RevisionManifestListReferenceFND 2
+                  │        │  └─ FileNodeList [0x00001298:0x00001898]
+                  │        │     └─ FileNodeListFragment [0x00001298:0x00001898] ID=3 Seq=0
+                  │        │        ├─ [0x000012A8:0x000012C0] RevisionManifestStart6FND 0
+                  │        │        ├─ [0x000012C0:0x000012E1] ObjectGroupListReferenceFND 2
+                  │        │        │  └─ FileNodeList [0x00001448:0x00001A48]
+                  │        │        │     └─ FileNodeListFragment [0x00001448:0x00001A48] ID=4 Seq=0
+                  │        │        │        ├─ [0x00001458:0x00001470] ObjectGroupStartFND 0
+                  │        │        │        └─ [0x00001470:0x00001474] ObjectGroupEndFND 0
+                  │        │        └─ [0x000012E1:0x000012FA] ObjectInfoDependencyOverridesFND 1
+                  └─ [0x0000042B:0x00000446] FileDataStoreListReferenceFND 2
+                     └─ FileNodeList [0x00000BE8:0x00001178]
+                        └─ FileNodeListFragment [0x00000BE8:0x00001178] ID=5 Seq=0
+                           └─ [0x00000BF8:0x00000C20] FileDataStoreObjectReferenceFND 1
+        """
+        logger.debug("[DISPLAY] OneDocument tree:")
+        if self.root_file_node_list is not None:
+            self.root_file_node_list.display()
 
     def get_files(self):
         """OneNote 문서에 포함된 파일 데이터를 추출하여 딕셔너리로 반환한다.
